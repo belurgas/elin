@@ -173,6 +173,7 @@ export interface AppUpdate {
   htmlUrl: string;
   assetName?: string | null;
   assetUrl?: string | null;
+  assetBrowserUrl?: string | null;
   assetSize?: number | null;
   publishedAt?: string | null;
 }

@@ -11,13 +11,6 @@ export default defineConfig(async () => ({
   build: {
     target: "esnext",
     cssMinify: true,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-        },
-      },
-    },
   },
   server: {
     port: 1420,

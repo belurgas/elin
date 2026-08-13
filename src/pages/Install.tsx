@@ -32,16 +32,6 @@ export function InstallPage() {
     if (catalog?.recommendedOtp && !otp) setOtp(catalog.recommendedOtp);
   }, [catalog, elixir, otp]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void listen<InstallProgress>("install-progress", (event) => {
-      setProgress(event.payload);
-    }).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten?.();
-  }, []);
-
   const selectedElixir = catalog?.elixir.find((x) => x.version === elixir);
   const compatible = useMemo(() => {
     if (!catalog || !selectedElixir) return [];
@@ -59,6 +49,10 @@ export function InstallPage() {
     setBusy(true);
     setError(null);
     setLog("");
+    setProgress({ stage: "start", message: t.common.loading, percent: 1 });
+    const unlisten = await listen<InstallProgress>("install-progress", (event) => {
+      setProgress(event.payload);
+    });
     try {
       const result = await api.install(elixir, otp, addPath, installHex);
       setLog(result.elixirVersionOutput);
@@ -66,6 +60,7 @@ export function InstallPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      unlisten();
       setBusy(false);
     }
   }
@@ -222,7 +217,7 @@ export function InstallPage() {
         )}
       </Card>
 
-      {progress || log || error ? (
+      {busy || progress || log || error ? (
         <Card>
           <div className="mb-3 flex items-center justify-between text-sm">
             <span>{progress?.message ?? (error ? t.common.error : "elixir -v")}</span>

@@ -1,7 +1,6 @@
 //! Hex Radar: search packages on hex.pm without leaving Elin.
 
 use crate::error::AppResult;
-use crate::services::net::HTTP;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -67,8 +66,7 @@ pub async fn search_packages(query: String, force: bool) -> AppResult<Vec<HexPac
             urlencoding::encode(query.trim())
         )
     };
-    let items = HTTP
-        .get(url)
+    let items = crate::services::net::get_api(&url)
         .send()
         .await?
         .error_for_status()?
@@ -115,8 +113,7 @@ pub async fn get_package(name: String) -> AppResult<HexPackage> {
         return Err(crate::error::AppError::msg("Package name looks invalid."));
     }
     let url = format!("https://hex.pm/api/packages/{name}");
-    let item = HTTP
-        .get(url)
+    let item = crate::services::net::get_api(&url)
         .send()
         .await?
         .error_for_status()?

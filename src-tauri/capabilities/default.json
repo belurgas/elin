@@ -33,6 +33,18 @@
     "core:webview:allow-create-webview-window",
     "core:event:default",
     "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/*" },
+        { "url": "https://*.github.com/*" },
+        { "url": "https://*.githubusercontent.com/*" },
+        { "url": "https://hex.pm/*" },
+        { "url": "https://*.hex.pm/*" },
+        { "url": "https://hexdocs.pm/*" },
+        { "url": "https://*.hexdocs.pm/*" }
+      ]
+    },
     "dialog:default",
     "notification:default"
   ]

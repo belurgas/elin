@@ -6,16 +6,13 @@ use crate::domain::{recommended_otp_major, ElixirVersion, InstalledPair, OtpVers
 use crate::error::{AppError, AppResult};
 use crate::services::catalog::{elixir_zip_url, fetch_catalog};
 use crate::services::env::{managed_root, set_user_path_entries};
-use crate::services::net::HTTP;
-use futures_util::StreamExt;
+use crate::services::net;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use tokio::io::AsyncWriteExt;
 use zip::ZipArchive;
 
 /// Progress event payload consumed by the Install Theater UI.
@@ -376,36 +373,41 @@ async fn download_file(
         emit_progress(app, "cache", "Using a previously downloaded archive…", start_percent);
         return Ok(());
     }
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let response = HTTP
-        .get(url)
-        .timeout(Duration::from_secs(600))
-        .send()
-        .await?
-        .error_for_status()?;
-    let total = response.content_length().unwrap_or(0);
-    let mut stream = response.bytes_stream();
-    let mut file = tokio::fs::File::create(dest).await?;
-    let mut downloaded: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        downloaded += chunk.len() as u64;
-        file.write_all(&chunk).await?;
-        if total > 0 {
-            let ratio = downloaded as f32 / total as f32;
-            let percent =
-                start_percent + ((end_percent - start_percent) as f32 * ratio).round() as u8;
-            emit_progress(
-                app,
-                "download",
-                &format!("Downloading… {} / {}", bytes(downloaded), bytes(total)),
-                percent.min(end_percent),
-            );
-        }
-    }
-    file.flush().await?;
+    emit_progress(
+        app,
+        "download",
+        "Starting download…",
+        start_percent.saturating_add(1).min(end_percent),
+    );
+    net::download_to_file(
+        url,
+        dest,
+        None,
+        &net::github_download_headers(url),
+        |got, total| {
+            let span = end_percent.saturating_sub(start_percent) as f32;
+            let percent = if total > 0 {
+                start_percent + ((span * (got as f32 / total as f32)).round() as u8).min(span as u8)
+            } else if got > 0 {
+                start_percent.saturating_add(2).min(end_percent)
+            } else {
+                start_percent
+            };
+            let message = if total > 0 {
+                format!(
+                    "Downloading… {} / {}",
+                    net::format_bytes(got),
+                    net::format_bytes(total)
+                )
+            } else if got > 0 {
+                format!("Downloading… {}", net::format_bytes(got))
+            } else {
+                "Starting download…".into()
+            };
+            emit_progress(app, "download", &message, percent.min(end_percent));
+        },
+    )
+    .await?;
     Ok(())
 }
 
@@ -518,16 +520,6 @@ impl IfEmpty for str {
         } else {
             self
         }
-    }
-}
-
-fn bytes(n: u64) -> String {
-    if n > 1_000_000 {
-        format!("{:.1} MB", n as f64 / 1_000_000.0)
-    } else if n > 1_000 {
-        format!("{:.0} KB", n as f64 / 1_000.0)
-    } else {
-        format!("{n} B")
     }
 }
 

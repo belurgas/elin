@@ -10,7 +10,6 @@ use crate::domain::{
     OtpVersion, VersionCatalog,
 };
 use crate::error::{AppError, AppResult};
-use crate::services::net::HTTP;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -31,6 +30,8 @@ struct GithubRelease {
 #[derive(Debug, Deserialize)]
 struct GithubAsset {
     name: String,
+    #[serde(default)]
+    url: String,
     browser_download_url: String,
 }
 
@@ -107,8 +108,7 @@ fn read_fresh_cache() -> Option<VersionCatalog> {
 }
 
 async fn fetch_live(include_prerelease: bool) -> AppResult<VersionCatalog> {
-    let elixir_text = HTTP
-        .get(ELIXIR_BUILDS)
+    let elixir_text = crate::services::net::get_api(ELIXIR_BUILDS)
         .send()
         .await?
         .error_for_status()?
@@ -157,7 +157,11 @@ pub fn parse_elixir_builds(text: &str) -> BTreeMap<String, BTreeSet<u32>> {
 async fn fetch_otp_releases() -> AppResult<Vec<OtpRelease>> {
     let mut collected: Vec<GithubRelease> = Vec::new();
 
-    if let Ok(latest) = HTTP.get(OTP_LATEST).send().await {
+    if let Ok(latest) = crate::services::net::get_api(OTP_LATEST)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+    {
         if latest.status().is_success() {
             if let Ok(rel) = latest.json::<GithubRelease>().await {
                 collected.push(rel);
@@ -165,8 +169,7 @@ async fn fetch_otp_releases() -> AppResult<Vec<OtpRelease>> {
         }
     }
 
-    let page = HTTP
-        .get(OTP_RELEASES)
+    let page = crate::services::net::get_api(OTP_RELEASES)
         .header("Accept", "application/vnd.github+json")
         .send()
         .await?
@@ -187,14 +190,14 @@ async fn fetch_otp_releases() -> AppResult<Vec<OtpRelease>> {
         let version = ver.to_string();
         let zip_url = rel.assets.iter().find_map(|a| {
             if a.name == format!("otp_win64_{version}.zip") {
-                Some(a.browser_download_url.clone())
+                Some(crate::services::net::github_asset_url(&a.url, &a.browser_download_url))
             } else {
                 None
             }
         });
         let exe_url = rel.assets.iter().find_map(|a| {
             if a.name == format!("otp_win64_{version}.exe") {
-                Some(a.browser_download_url.clone())
+                Some(crate::services::net::github_asset_url(&a.url, &a.browser_download_url))
             } else {
                 None
             }
@@ -350,8 +353,7 @@ main-otp-28 2026-01-02T00:00:00Z jkl
 
     #[tokio::test]
     async fn live_hex_builds_index_is_reachable() {
-        let text = HTTP
-            .get(ELIXIR_BUILDS)
+        let text = crate::services::net::get_api(ELIXIR_BUILDS)
             .send()
             .await
             .expect("network")

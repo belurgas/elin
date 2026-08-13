@@ -2,7 +2,7 @@ import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useEffect, u
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
-import { UpdateBar } from "./components/UpdateBar";
+import { UpdateBar, UpdateInstallProvider } from "./components/UpdateBar";
 import { AppProvider, useNav } from "./state";
 import { HomePage } from "./pages/Home";
 import { ToastShell } from "./components/ToastShell";
@@ -10,8 +10,9 @@ import { TrayShell } from "./components/TrayShell";
 import { WorkspaceApp } from "./workspace/WorkspaceApp";
 import { api } from "./lib/api";
 import type { PageId } from "./types";
+import { SettingsPage } from "./pages/Settings";
+import { InstallPage } from "./pages/Install";
 
-const InstallPage = lazy(() => import("./pages/Install").then((m) => ({ default: m.InstallPage })));
 const ToolchainPage = lazy(() => import("./pages/Toolchain").then((m) => ({ default: m.ToolchainPage })));
 const StudiosPage = lazy(() => import("./pages/Studios").then((m) => ({ default: m.StudiosPage })));
 const PluginsPage = lazy(() => import("./pages/Plugins").then((m) => ({ default: m.PluginsPage })));
@@ -20,7 +21,6 @@ const ProjectsPage = lazy(() => import("./pages/Projects").then((m) => ({ defaul
 const PlaygroundPage = lazy(() => import("./pages/Playground").then((m) => ({ default: m.PlaygroundPage })));
 const HexPage = lazy(() => import("./pages/Hex").then((m) => ({ default: m.HexPage })));
 const LearnPage = lazy(() => import("./pages/Learn").then((m) => ({ default: m.LearnPage })));
-const SettingsPage = lazy(() => import("./pages/Settings").then((m) => ({ default: m.SettingsPage })));
 
 function PageFallback() {
   return <div className="page-enter p-6 text-sm text-mist-300">…</div>;
@@ -35,11 +35,7 @@ function PageView({ page }: { page: PageId }) {
     case "home":
       return <HomePage />;
     case "install":
-      return (
-        <Lazy>
-          <InstallPage />
-        </Lazy>
-      );
+      return <InstallPage />;
     case "toolchain":
       return (
         <Lazy>
@@ -89,11 +85,7 @@ function PageView({ page }: { page: PageId }) {
         </Lazy>
       );
     case "settings":
-      return (
-        <Lazy>
-          <SettingsPage />
-        </Lazy>
-      );
+      return <SettingsPage />;
   }
 }
 
@@ -101,25 +93,27 @@ function Shell() {
   const { page } = useNav();
 
   return (
-    <div className="aurora flex h-full flex-col">
-      <div className="grain" aria-hidden />
-      <Titlebar />
-      <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <UpdateBar />
-          <div
-            className={
-              page === "hex" || page === "projects"
-                ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-                : "min-h-0 flex-1 overflow-y-auto"
-            }
-          >
-            <PageView page={page} />
-          </div>
-        </main>
+    <UpdateInstallProvider>
+      <div className="aurora flex h-full flex-col">
+        <div className="grain" aria-hidden />
+        <Titlebar />
+        <div className="flex min-h-0 flex-1">
+          <Sidebar />
+          <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+            <UpdateBar />
+            <div
+              className={
+                page === "hex" || page === "projects"
+                  ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                  : "min-h-0 flex-1 overflow-y-auto"
+              }
+            >
+              <PageView page={page} />
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </UpdateInstallProvider>
   );
 }
 

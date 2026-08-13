@@ -5,16 +5,14 @@
 
 use crate::domain::ElixirVersion;
 use crate::error::{AppError, AppResult};
-use crate::services::net::HTTP;
+use crate::services::net::{self, get_api};
 use crate::services::winproc::{hide_console_ex, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS};
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
-use tokio::io::AsyncWriteExt;
 
 pub const REPO: &str = "belurgas/elin";
 const LATEST_URL: &str = "https://api.github.com/repos/belurgas/elin/releases/latest";
@@ -31,6 +29,7 @@ pub struct AppUpdate {
     pub html_url: String,
     pub asset_name: Option<String>,
     pub asset_url: Option<String>,
+    pub asset_browser_url: Option<String>,
     pub asset_size: Option<u64>,
     pub published_at: Option<String>,
 }
@@ -59,6 +58,8 @@ struct GithubRelease {
 #[derive(Debug, Deserialize)]
 struct GithubAsset {
     name: String,
+    #[serde(default)]
+    url: String,
     browser_download_url: String,
     size: u64,
 }
@@ -85,6 +86,7 @@ fn up_to_date() -> AppUpdate {
         html_url: format!("https://github.com/{REPO}/releases"),
         asset_name: None,
         asset_url: None,
+        asset_browser_url: None,
         asset_size: None,
         published_at: None,
     }
@@ -127,8 +129,7 @@ fn is_not_found(err: &AppError) -> bool {
 }
 
 async fn fetch_latest() -> AppResult<GithubRelease> {
-    let response = HTTP
-        .get(LATEST_URL)
+    let response = get_api(LATEST_URL)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
         .send()
@@ -156,7 +157,8 @@ fn from_release(rel: GithubRelease) -> AppUpdate {
         notes: clip_notes(rel.body.as_deref().unwrap_or("")),
         html_url: rel.html_url,
         asset_name: asset.map(|a| a.name.clone()),
-        asset_url: asset.map(|a| a.browser_download_url.clone()),
+        asset_url: asset.map(|a| net::github_asset_url(&a.url, &a.browser_download_url)),
+        asset_browser_url: asset.map(|a| a.browser_download_url.clone()),
         asset_size: asset.map(|a| a.size),
         published_at: rel.published_at,
     }
@@ -206,9 +208,11 @@ pub async fn download(app: &AppHandle, force: bool) -> AppResult<PathBuf> {
     if !info.newer {
         return Err(AppError::msg("This copy is already the latest Elin."));
     }
-    let url = info
+    let primary = info
         .asset_url
+        .clone()
         .ok_or_else(|| AppError::msg("This release has no Windows installer yet."))?;
+    let fallback = info.asset_browser_url.clone().filter(|u| u != &primary);
     let name = info
         .asset_name
         .unwrap_or_else(|| format!("Elin_{}_x64-setup.exe", info.latest));
@@ -221,37 +225,50 @@ pub async fn download(app: &AppHandle, force: bool) -> AppResult<PathBuf> {
         }
         let _ = fs::remove_file(&dest);
     }
-    emit_progress(app, 0, "Starting download…", 0, info.asset_size.unwrap_or(0));
-    let response = HTTP
-        .get(&url)
-        .timeout(Duration::from_secs(600))
-        .send()
-        .await?
-        .error_for_status()?;
-    let total = response.content_length().unwrap_or(info.asset_size.unwrap_or(0));
-    let mut stream = response.bytes_stream();
-    let mut file = tokio::fs::File::create(&dest).await?;
-    let mut downloaded: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        downloaded += chunk.len() as u64;
-        file.write_all(&chunk).await?;
-        let percent = if total > 0 {
-            ((downloaded as f64 / total as f64) * 100.0).round() as u8
-        } else {
-            0
-        };
-        emit_progress(
-            app,
-            percent.min(99),
-            &format!("Downloading… {} / {}", bytes(downloaded), bytes(total)),
-            downloaded,
-            total,
-        );
+
+    let size = info.asset_size;
+    let first = pull_installer(app, &primary, &dest, size).await;
+    match first {
+        Ok(()) => Ok(dest),
+        Err(err) => {
+            if let Some(url) = fallback {
+                let _ = fs::remove_file(dest.with_extension("partial"));
+                pull_installer(app, &url, &dest, size).await?;
+                Ok(dest)
+            } else {
+                Err(err)
+            }
+        }
     }
-    file.flush().await?;
-    emit_progress(app, 100, "Download complete.", downloaded, total);
-    Ok(dest)
+}
+
+async fn pull_installer(app: &AppHandle, url: &str, dest: &Path, size: Option<u64>) -> AppResult<()> {
+    emit_progress(app, 1, "Starting download…", 0, size.unwrap_or(0));
+    net::download_to_file(url, dest, size, &net::github_download_headers(url), |got, total| {
+        let percent = if total > 0 {
+            net::percent(got, total).min(99)
+        } else if got > 0 {
+            15
+        } else {
+            1
+        };
+        let message = if total > 0 {
+            format!(
+                "Downloading… {} / {}",
+                net::format_bytes(got),
+                net::format_bytes(total)
+            )
+        } else if got > 0 {
+            format!("Downloading… {}", net::format_bytes(got))
+        } else {
+            "Starting download…".into()
+        };
+        emit_progress(app, percent, &message, got, total);
+    })
+    .await?;
+    let len = dest.metadata()?.len();
+    emit_progress(app, 100, "Download complete.", len, size.unwrap_or(len));
+    Ok(())
 }
 
 pub fn launch_installer(app: &AppHandle, path: &Path) -> AppResult<()> {
@@ -281,16 +298,6 @@ fn emit_progress(app: &AppHandle, percent: u8, message: &str, downloaded: u64, t
     );
 }
 
-fn bytes(n: u64) -> String {
-    if n >= 1_048_576 {
-        format!("{:.1} MB", n as f64 / 1_048_576.0)
-    } else if n >= 1024 {
-        format!("{:.0} KB", n as f64 / 1024.0)
-    } else {
-        format!("{n} B")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +323,7 @@ mod tests {
             published_at: None,
             assets: vec![GithubAsset {
                 name: "Elin_1.2.3_x64-setup.exe".into(),
+                url: "https://api.github.com/repos/belurgas/elin/releases/assets/1".into(),
                 browser_download_url: "https://example.com/setup.exe".into(),
                 size: 10,
             }],
@@ -323,6 +331,10 @@ mod tests {
         let info = from_release(rel);
         assert_eq!(info.latest, "1.2.3");
         assert_eq!(info.asset_name.as_deref(), Some("Elin_1.2.3_x64-setup.exe"));
+        assert_eq!(
+            info.asset_url.as_deref(),
+            Some("https://api.github.com/repos/belurgas/elin/releases/assets/1")
+        );
     }
 
     #[test]
@@ -330,11 +342,13 @@ mod tests {
         let assets = vec![
             GithubAsset {
                 name: "notes.exe".into(),
+                url: String::new(),
                 browser_download_url: "a".into(),
                 size: 1,
             },
             GithubAsset {
                 name: "Elin_1.0.0_x64-setup.exe".into(),
+                url: String::new(),
                 browser_download_url: "b".into(),
                 size: 2,
             },
