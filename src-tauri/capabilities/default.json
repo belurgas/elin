@@ -1,0 +1,39 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main, toast, and tray window capabilities for Elin",
+  "windows": ["main", "toast", "tray", "ws-*"],
+  "remote": {
+    "urls": [
+      "http://localhost:1420",
+      "http://localhost:1420/",
+      "http://localhost:1420/*",
+      "http://127.0.0.1:1420",
+      "http://127.0.0.1:1420/",
+      "http://127.0.0.1:1420/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-skip-taskbar",
+    "core:window:allow-is-visible",
+    "core:window:allow-unminimize",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-create-webview-window",
+    "core:event:default",
+    "opener:default",
+    "dialog:default",
+    "notification:default"
+  ]
+}

@@ -1,0 +1,37 @@
+name: Bug
+description: Something in Elin is wrong on this machine
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Windows only for now. Say what you clicked, what you expected, what you got.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: I clicked Add to PATH and nothing changed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Elin version
+      placeholder: 0.1.0 / commit hash / tauri dev
+  - type: textarea
+    id: env
+    attributes:
+      label: Machine
+      placeholder: Windows 11, Elixir 1.20.3, OTP 29, Cursor
+  - type: textarea
+    id: log
+    attributes:
+      label: Log / screenshot
+      description: Doctor page, studio console, or `elin status`.

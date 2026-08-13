@@ -1,0 +1,29 @@
+name: Feature
+description: Something Elin should do next
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The job to be done
+      placeholder: I want to pin Credo from the CLI without opening the app.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could look
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - App (install / PATH / editors)
+        - Studio (graph / git / hex / console)
+        - CLI
+        - Analyzer
+        - Docs / i18n
+        - Other
+    validations:
+      required: true
