@@ -22,7 +22,9 @@ import type {
   StartupProbe,
   Studio,
   ToastPayload,
+  UpdateProgress,
   VersionCatalog,
+  AppUpdate,
 } from "../types";
 
 export const api = {
@@ -98,6 +100,9 @@ export const api = {
     invoke<void>("add_elin_comment", { path, file, tag, value }),
   addElinToPath: () => invoke<string>("add_elin_to_path"),
   addToPath: (name: string) => invoke<string>("add_bin_to_path", { name }),
+  checkAppUpdate: (force = false) => invoke<AppUpdate>("check_app_update", { force }),
+  downloadAppUpdate: (force = false) => invoke<string>("download_app_update", { force }),
+  installAppUpdate: (path: string) => invoke<void>("install_app_update", { path }),
   toast: (toast: ToastPayload) => invoke<void>("show_toast", { toast }),
   hideToast: () => invoke<void>("hide_toast_window"),
   lastToast: () => invoke<ToastPayload | null>("last_toast"),
@@ -108,6 +113,10 @@ export const api = {
 
 export async function onInstallProgress(handler: (payload: InstallProgress) => void): Promise<UnlistenFn> {
   return listen<InstallProgress>("install-progress", (event) => handler(event.payload));
+}
+
+export async function onUpdateProgress(handler: (payload: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("app-update-progress", (event) => handler(event.payload));
 }
 
 export async function onToast(handler: (payload: ToastPayload) => void): Promise<UnlistenFn> {

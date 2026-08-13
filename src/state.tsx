@@ -10,6 +10,7 @@ import {
 import { api, onNavigate, onOpenProject } from "./lib/api";
 import { applyLocale, detectLocale, dictionaries, subscribeLocale, type Dictionary } from "./i18n";
 import type {
+  AppUpdate,
   HostInfo,
   InstalledPair,
   Locale,
@@ -48,6 +49,11 @@ interface DataState {
   setIncludePrerelease: (value: boolean) => void;
   probe: StartupProbe | null;
   refreshProbe: () => Promise<void>;
+  appUpdate: AppUpdate | null;
+  refreshAppUpdate: (force?: boolean) => Promise<void>;
+  dismissUpdate: () => void;
+  skipUpdate: () => void;
+  offerUpdate: boolean;
 }
 
 type AppState = NavState & DataState;
@@ -68,6 +74,8 @@ export function AppProvider({ children, lite = false }: { children: ReactNode; l
   const [host, setHost] = useState<HostInfo | null>(null);
   const [includePrerelease, setIncludePrerelease] = useState(false);
   const [probe, setProbe] = useState<StartupProbe | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdate | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   const t = dictionaries[locale];
 
@@ -143,6 +151,42 @@ export function AppProvider({ children, lite = false }: { children: ReactNode; l
     }
   }, []);
 
+  const refreshAppUpdate = useCallback(async (force = false) => {
+    try {
+      const next = await api.checkAppUpdate(force);
+      setAppUpdate((prev) => {
+        if (prev && prev.latest !== next.latest) {
+          setUpdateDismissed(false);
+        }
+        return next;
+      });
+      if (!next.newer) return;
+      const skipped = localStorage.getItem("elin.skipVersion");
+      if (skipped === next.latest) return;
+      const notified = localStorage.getItem("elin.notifiedVersion");
+      if (notified === next.latest) return;
+      localStorage.setItem("elin.notifiedVersion", next.latest);
+      void api.toast({
+        id: "app-update",
+        title: `Elin ${next.latest}`,
+        body: next.notes.split("\n").find((line) => line.trim()) || next.name,
+        kind: "ok",
+        page: "settings",
+      });
+    } catch {
+      /* offline / no releases yet */
+    }
+  }, []);
+
+  const dismissUpdate = useCallback(() => setUpdateDismissed(true), []);
+
+  const skipUpdate = useCallback(() => {
+    if (appUpdate?.latest) {
+      localStorage.setItem("elin.skipVersion", appUpdate.latest);
+    }
+    setUpdateDismissed(true);
+  }, [appUpdate]);
+
   const setPreferredStudio = useCallback((id: string) => {
     localStorage.setItem("elin.preferredStudio", id);
     setPreferredStudioId(id);
@@ -172,7 +216,13 @@ export function AppProvider({ children, lite = false }: { children: ReactNode; l
     void api.host().then(setHost).catch(() => undefined);
     void refreshCatalog();
     void refreshProbe();
-  }, [lite, refreshCatalog, refreshProbe, refreshToolchains]);
+    const boot = window.setTimeout(() => void refreshAppUpdate(false), 2200);
+    const hour = window.setInterval(() => void refreshAppUpdate(false), 60 * 60 * 1000);
+    return () => {
+      window.clearTimeout(boot);
+      window.clearInterval(hour);
+    };
+  }, [lite, refreshAppUpdate, refreshCatalog, refreshProbe, refreshToolchains]);
 
   useEffect(() => {
     if (lite) return;
@@ -208,6 +258,10 @@ export function AppProvider({ children, lite = false }: { children: ReactNode; l
     [clearPendingProject, locale, page, pendingProject, setLocale, t],
   );
 
+  const offerUpdate = Boolean(
+    appUpdate?.newer && !updateDismissed && localStorage.getItem("elin.skipVersion") !== appUpdate.latest,
+  );
+
   const data = useMemo<DataState>(
     () => ({
       catalog,
@@ -228,22 +282,32 @@ export function AppProvider({ children, lite = false }: { children: ReactNode; l
       setIncludePrerelease,
       probe,
       refreshProbe,
+      appUpdate,
+      refreshAppUpdate,
+      dismissUpdate,
+      skipUpdate,
+      offerUpdate,
     }),
     [
       addStudio,
+      appUpdate,
       catalog,
       catalogError,
+      dismissUpdate,
       ensureStudios,
       host,
       includePrerelease,
+      offerUpdate,
       preferredStudioId,
       probe,
+      refreshAppUpdate,
       refreshCatalog,
       refreshProbe,
       refreshStudios,
       refreshToolchains,
       selectedStudioIds,
       setPreferredStudio,
+      skipUpdate,
       studios,
       toggleStudio,
       toolchains,

@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, type ErrorInfo, type ReactNode, useEffect, u
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar } from "./components/Sidebar";
+import { UpdateBar } from "./components/UpdateBar";
 import { AppProvider, useNav } from "./state";
 import { HomePage } from "./pages/Home";
 import { ToastShell } from "./components/ToastShell";
@@ -105,12 +106,17 @@ function Shell() {
       <Titlebar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main
-          className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${
-            page === "hex" || page === "projects" ? "overflow-hidden" : "overflow-y-auto"
-          }`}
-        >
-          <PageView page={page} />
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <UpdateBar />
+          <div
+            className={
+              page === "hex" || page === "projects"
+                ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                : "min-h-0 flex-1 overflow-y-auto"
+            }
+          >
+            <PageView page={page} />
+          </div>
         </main>
       </div>
     </div>

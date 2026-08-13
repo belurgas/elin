@@ -1,20 +1,27 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { HeartPulse, FolderGit2, FlaskConical, LogOut, Sparkles } from "lucide-react";
+import { HeartPulse, FolderGit2, FlaskConical, LogOut, Sparkles, ArrowDownToLine } from "lucide-react";
 import { api } from "../lib/api";
 import { detectLocale, dictionaries, subscribeLocale } from "../i18n";
-import type { InstalledPair } from "../types";
+import type { AppUpdate, InstalledPair } from "../types";
 import { cn } from "../lib/cn";
 
 export function TrayShell() {
   const [locale, setLocale] = useState(detectLocale);
   const t = dictionaries[locale];
   const [pairs, setPairs] = useState<InstalledPair[]>([]);
+  const [update, setUpdate] = useState<AppUpdate | null>(null);
 
   useEffect(() => subscribeLocale(setLocale), []);
 
   useEffect(() => {
     void api.toolchains().then(setPairs).catch(() => undefined);
+    void api
+      .checkAppUpdate(false)
+      .then((next) => {
+        if (next.newer) setUpdate(next);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -68,6 +75,13 @@ export function TrayShell() {
 
       <div className="no-drag mt-2 flex flex-1 flex-col px-2">
         <TrayRow icon={Sparkles} label={t.tray.open} onClick={() => void api.focusMain()} />
+        {update ? (
+          <TrayRow
+            icon={ArrowDownToLine}
+            label={t.update.available.replace("{version}", update.latest)}
+            onClick={() => void api.openPage("settings")}
+          />
+        ) : null}
         <TrayRow icon={FlaskConical} label={t.tray.install} onClick={() => void api.openPage("install")} />
         <TrayRow icon={HeartPulse} label={t.tray.doctor} onClick={() => void api.openPage("doctor")} />
         <TrayRow icon={FolderGit2} label={t.tray.projects} onClick={() => void api.openPage("projects")} />

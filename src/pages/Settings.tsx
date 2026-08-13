@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useApp } from "../state";
 import { Button, Menu, PageShell, Pill } from "../components/ui";
+import { UpdateSettingsCard } from "../components/UpdateBar";
 import { api } from "../lib/api";
 import { isLocale, locales } from "../i18n";
 import type { CacheStatus } from "../types";
@@ -19,6 +20,8 @@ export function SettingsPage() {
 
   return (
     <PageShell title={t.settings.title}>
+      <UpdateSettingsCard />
+
       <section className="surface rounded-xl">
         <div className="border-b border-white/6 px-4 py-3">
           <div className="text-[13px] font-medium text-mist-50">{t.settings.language}</div>

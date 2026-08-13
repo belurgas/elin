@@ -25,6 +25,7 @@ Same `elin.exe` either way.
 | `src/domain/` | Version numbers and “does this Elixir run on that OTP?”. No files, no network. |
 | `src/desktop.rs` | Tray icon and the little toast window. |
 | `src/instance.rs` | Makes sure a second Elin focuses the first one instead of opening a twin. |
+| `src/services/update.rs` | Asks GitHub Releases if a newer Elin exists, downloads the installer. |
 | `tauri.conf.json` | Window size, installer (NSIS / MSI), icons. |
 | `icons/` and `windows/` | Artwork for the app and the Windows installer. |
 
@@ -48,6 +49,7 @@ You do not need to know all of these. This is the “where do I look?” list.
 | `hexpm.rs` | Search and package details from hex.pm. |
 | `workspace.rs` | The Studio window: which folder it is, add/remove Hex, Mix tasks. |
 | `watch.rs` | Notices when files change so the graph can refresh. |
+| `update.rs` | GitHub Releases: is there a newer Elin? Download the NSIS installer. |
 | `doctor.rs` | The Doctor page’s checklist and one-click fixes. |
 | `store.rs` / `cache.rs` | Durable data vs throwaway downloads. Clearing cache must not forget your projects. |
 

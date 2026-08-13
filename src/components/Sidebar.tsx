@@ -32,7 +32,7 @@ const items: Array<{ id: PageId; icon: typeof Home }> = [
 
 export const Sidebar = memo(function Sidebar() {
   const { page, setPage, t } = useNav();
-  const { catalog, toolchains, probe } = useData();
+  const { catalog, toolchains, probe, host, offerUpdate } = useData();
   const active = toolchains.find((x) => x.isActive) ?? toolchains[0];
   const elixirLabel = active
     ? `elixir ${active.elixir}`
@@ -56,7 +56,8 @@ export const Sidebar = memo(function Sidebar() {
             )}
           >
             <Icon size={15} className={page === id ? "text-elixir-400" : "opacity-70"} />
-            {t.pages[id]}
+            <span className="min-w-0 flex-1 truncate">{t.pages[id]}</span>
+            {id === "settings" && offerUpdate ? <span className="size-1.5 shrink-0 rounded-full bg-elixir-400" /> : null}
           </button>
         ))}
       </nav>
@@ -65,6 +66,9 @@ export const Sidebar = memo(function Sidebar() {
         <div className="font-mono text-[11px] text-mist-300">
           {active ? `otp ${active.otp}` : catalog?.recommendedOtp ?? "—"}
         </div>
+        {host?.version ? (
+          <div className="mt-1 font-mono text-[10px] text-mist-300/80">elin {host.version}</div>
+        ) : null}
         {probe?.elixir && !probe.userPathHasElixir ? (
           <div className="mt-1 text-[10px] leading-4 text-warn-400">{t.home.notOnPath}</div>
         ) : null}

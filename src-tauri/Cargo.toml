@@ -1,6 +1,6 @@
 [package]
 name = "elin"
-version = "0.1.0"
+version = "0.9.3"
 description = "A beautiful Elixir + Erlang toolchain companion"
 authors = ["Elin"]
 edition = "2021"

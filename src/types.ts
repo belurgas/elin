@@ -160,6 +160,28 @@ export interface HostInfo {
   arch: string;
   home?: string | null;
   installsDir: string;
+  version: string;
+  repo: string;
+}
+
+export interface AppUpdate {
+  current: string;
+  latest: string;
+  newer: boolean;
+  name: string;
+  notes: string;
+  htmlUrl: string;
+  assetName?: string | null;
+  assetUrl?: string | null;
+  assetSize?: number | null;
+  publishedAt?: string | null;
+}
+
+export interface UpdateProgress {
+  percent: number;
+  message: string;
+  downloaded: number;
+  total: number;
 }
 
 export interface SparkResult {

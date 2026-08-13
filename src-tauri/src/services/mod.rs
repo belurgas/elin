@@ -22,3 +22,4 @@ pub mod studios;
 pub mod winproc;
 pub mod watch;
 pub mod workspace;
+pub mod update;

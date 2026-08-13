@@ -44,6 +44,8 @@ pub struct HostInfo {
     pub arch: String,
     pub home: Option<String>,
     pub installs_dir: String,
+    pub version: String,
+    pub repo: String,
 }
 
 #[tauri::command]
@@ -55,6 +57,8 @@ pub async fn get_host_info() -> AppResult<HostInfo> {
         installs_dir: crate::services::env::managed_root()?
             .to_string_lossy()
             .into(),
+        version: crate::services::update::current_version(),
+        repo: crate::services::update::REPO.into(),
     })
 }
 
@@ -259,6 +263,22 @@ pub fn add_bin_to_path(name: String) -> AppResult<String> {
 #[tauri::command]
 pub fn add_elin_to_path() -> AppResult<String> {
     crate::services::env::add_elin_to_path()
+}
+
+#[tauri::command]
+pub async fn check_app_update(force: bool) -> AppResult<crate::services::update::AppUpdate> {
+    crate::services::update::check(force).await
+}
+
+#[tauri::command]
+pub async fn download_app_update(app: AppHandle, force: bool) -> AppResult<String> {
+    let path = crate::services::update::download(&app, force).await?;
+    Ok(path.to_string_lossy().into())
+}
+
+#[tauri::command]
+pub fn install_app_update(app: AppHandle, path: String) -> AppResult<()> {
+    crate::services::update::launch_installer(&app, std::path::Path::new(&path))
 }
 
 #[tauri::command]

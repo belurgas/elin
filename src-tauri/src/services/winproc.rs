@@ -7,6 +7,8 @@ use std::process::{Command, Output, Stdio};
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Keep a spawned editor alive if Elin later dies.
 pub const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+/// Detach so a child (the updater) survives `app.exit`.
+pub const DETACHED_PROCESS: u32 = 0x0000_0008;
 
 pub fn hide_console(cmd: &mut Command) {
     hide_console_ex(cmd, 0);

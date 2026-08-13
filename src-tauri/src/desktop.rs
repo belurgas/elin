@@ -19,7 +19,7 @@ static TRAY_SHOWN_AT: Mutex<Option<Instant>> = Mutex::new(None);
 pub const TOAST_W: f64 = 360.0;
 pub const TOAST_H: f64 = 108.0;
 pub const TRAY_W: f64 = 280.0;
-pub const TRAY_H: f64 = 404.0;
+pub const TRAY_H: f64 = 444.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
