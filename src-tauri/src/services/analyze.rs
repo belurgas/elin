@@ -1,6 +1,7 @@
 //! Static Elixir analysis: modules as files, edges, and `# elin:` comments.
 //!
-//! Does not compile Mix or start BEAM. Walks `lib/` and `test/` only.
+//! Does not compile Mix or start BEAM. Walks `lib/`, `test/`, and umbrella
+//! children under `apps/*/lib` and `apps/*/test`.
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -158,11 +159,7 @@ pub fn analyze_path(root: &Path) -> ModuleGraph {
     let mut local_aliases: HashMap<String, HashMap<String, String>> = HashMap::new();
 
     let mut source_files = Vec::new();
-    for dir_name in ["lib", "test"] {
-        let dir = root.join(dir_name);
-        if !dir.exists() {
-            continue;
-        }
+    for dir in elixir_source_dirs(root) {
         for entry in WalkDir::new(&dir).into_iter().flatten() {
             let path = entry.path();
             if !path.is_file() {
@@ -184,11 +181,7 @@ pub fn analyze_path(root: &Path) -> ModuleGraph {
             continue;
         };
         let rel = rel_to(root, path);
-        let kind = if rel.replace('\\', "/").starts_with("test/") {
-            "test"
-        } else {
-            "lib"
-        };
+        let kind = file_kind(&rel);
         let tags = parse_file_tags(&text);
         let file_comments = parse_elin_comments(&text, &rel);
         let defined: Vec<String> = PAT
@@ -238,7 +231,7 @@ pub fn analyze_path(root: &Path) -> ModuleGraph {
                 path: Some(display_path.clone()),
                 kind: kind.into(),
                 git: None,
-                boundary: tags.boundary.clone(),
+                boundary: tags.boundary.clone().or_else(|| umbrella_app(&rel)),
                 notes: notes.clone(),
                 ignored: false,
                 wired: false,
@@ -652,7 +645,7 @@ fn collect_tree(root: &Path) -> Vec<ProjectEntry> {
             });
         }
     }
-    for dir_name in ["lib", "test", "config"] {
+    for dir_name in ["lib", "test", "config", "apps"] {
         let dir = root.join(dir_name);
         if !dir.exists() {
             continue;
@@ -677,6 +670,54 @@ fn collect_tree(root: &Path) -> Vec<ProjectEntry> {
     }
     files.sort_by(|a, b| a.rel.replace('\\', "/").cmp(&b.rel.replace('\\', "/")));
     files
+}
+
+fn elixir_source_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    push_lib_test(root, &mut dirs);
+    let apps = root.join("apps");
+    if !apps.is_dir() {
+        return dirs;
+    }
+    let Ok(entries) = fs::read_dir(&apps) else {
+        return dirs;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && path.join("mix.exs").is_file() {
+            push_lib_test(&path, &mut dirs);
+        }
+    }
+    dirs
+}
+
+fn push_lib_test(base: &Path, dirs: &mut Vec<PathBuf>) {
+    for name in ["lib", "test"] {
+        let dir = base.join(name);
+        if dir.is_dir() {
+            dirs.push(dir);
+        }
+    }
+}
+
+fn file_kind(rel: &str) -> &'static str {
+    let n = rel.replace('\\', "/");
+    if n.contains("/test/") || n.starts_with("test/") {
+        "test"
+    } else {
+        "lib"
+    }
+}
+
+fn umbrella_app(rel: &str) -> Option<String> {
+    let n = rel.replace('\\', "/");
+    let rest = n.strip_prefix("apps/")?;
+    let app = rest.split('/').next()?;
+    if app.is_empty() {
+        None
+    } else {
+        Some(app.to_string())
+    }
 }
 
 fn skip_walk(path: &Path) -> bool {
@@ -864,6 +905,34 @@ end
         let graph = analyze_path(&dir);
         let node = graph.nodes.iter().find(|n| n.id == "Demo.Lonely").unwrap();
         assert!(!node.wired);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn umbrella_reads_child_apps() {
+        let dir = scratch("umbrella");
+        fs::create_dir_all(dir.join("apps/rt/lib")).unwrap();
+        fs::create_dir_all(dir.join("apps/rt/test")).unwrap();
+        fs::write(dir.join("apps/rt/mix.exs"), "defmodule Rt.MixProject do\nuse Mix.Project\nend\n").unwrap();
+        fs::write(
+            dir.join("apps/rt/lib/rt.ex"),
+            "defmodule Rt do\n  alias Rt.Sock\nend\n",
+        )
+        .unwrap();
+        fs::write(dir.join("apps/rt/lib/sock.ex"), "defmodule Rt.Sock do\nend\n").unwrap();
+        fs::write(
+            dir.join("apps/rt/test/rt_test.exs"),
+            "defmodule RtTest do\n  alias Rt\nend\n",
+        )
+        .unwrap();
+        let graph = analyze_path(&dir);
+        let rt = graph.nodes.iter().find(|n| n.id == "Rt").unwrap();
+        assert_eq!(rt.path.as_deref(), Some("apps/rt/lib/rt.ex"));
+        assert_eq!(rt.boundary.as_deref(), Some("rt"));
+        assert!(graph.nodes.iter().any(|n| n.id == "Rt.Sock"));
+        let test = graph.nodes.iter().find(|n| n.id == "RtTest").unwrap();
+        assert_eq!(test.kind, "test");
+        assert!(graph.edges.iter().any(|e| e.from == "Rt" && e.to == "Rt.Sock"));
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -94,12 +94,40 @@ pub fn snapshot(project_path: &str) -> GitSnapshot {
         Some("Set git user.name and user.email before committing.".into())
     };
 
-    let porcelain = git_out(&git, &repo_path, &["status", "--porcelain=v1"]).unwrap_or_default();
+    let prefix = git_out(&git, &root, &["rev-parse", "--show-prefix"])
+        .ok()
+        .map(|s| s.trim().replace('\\', "/"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default();
+    let pathspec = if prefix.is_empty() {
+        ".".to_string()
+    } else {
+        prefix.trim_end_matches('/').to_string()
+    };
+
+    let porcelain = git_out(
+        &git,
+        &repo_path,
+        &["status", "--porcelain=v1", "--", &pathspec],
+    )
+    .unwrap_or_default();
     let mut files = parse_porcelain(&porcelain);
-    if let Ok(numstat) = git_out(&git, &repo_path, &["diff", "HEAD", "--numstat"]) {
-        apply_numstat(&mut files, &numstat);
+    for file in &mut files {
+        match strip_git_prefix(&file.path, &prefix) {
+            Some(rel) => file.path = rel,
+            None => file.path.clear(),
+        }
     }
-    let dep_changes = lock_diff(&git, &repo_path);
+    files.retain(|f| !f.path.is_empty());
+    if let Ok(numstat) = git_out(
+        &git,
+        &repo_path,
+        &["diff", "HEAD", "--numstat", "--", &pathspec],
+    ) {
+        let rewritten = rewrite_numstat(&numstat, &prefix);
+        apply_numstat(&mut files, &rewritten);
+    }
+    let dep_changes = lock_diff(&git, &repo_path, &root, &prefix);
     GitSnapshot {
         repo: Some(repo),
         branch,
@@ -131,9 +159,9 @@ pub fn overlay(graph: &mut ModuleGraph, git: &GitSnapshot) {
         }
     }
 
-    // Deleted files: try to recover the module name from the relative path.
+    // Deleted Elixir sources that the graph no longer sees (file is gone).
     for file in &git.files {
-        if !file.status.contains('D') {
+        if !is_deleted_status(&file.status) || !is_elixir_source(&file.path) {
             continue;
         }
         let key = normalize(&file.path);
@@ -426,11 +454,16 @@ pub fn diff_locks(old: &str, new: &str) -> Vec<DepChange> {
     changes
 }
 
-fn lock_diff(git: &Path, repo: &Path) -> Vec<DepChange> {
-    let Ok(old) = git_out(git, repo, &["show", "HEAD:mix.lock"]) else {
+fn lock_diff(git: &Path, repo: &Path, project: &Path, prefix: &str) -> Vec<DepChange> {
+    let git_lock = if prefix.is_empty() {
+        "mix.lock".to_string()
+    } else {
+        format!("{}mix.lock", if prefix.ends_with('/') { prefix.to_string() } else { format!("{prefix}/") })
+    };
+    let Ok(old) = git_out(git, repo, &["show", &format!("HEAD:{git_lock}")]) else {
         return Vec::new();
     };
-    let new = std::fs::read_to_string(repo.join("mix.lock")).unwrap_or_default();
+    let new = std::fs::read_to_string(project.join("mix.lock")).unwrap_or_default();
     if new.is_empty() {
         return Vec::new();
     }
@@ -440,15 +473,55 @@ fn lock_diff(git: &Path, repo: &Path) -> Vec<DepChange> {
 fn status_label(code: &str) -> String {
     if code.contains('?') {
         "untracked".into()
+    } else if is_deleted_status(code) {
+        "deleted".into()
     } else if code.contains('A') {
         "added".into()
-    } else if code.contains('D') {
-        "deleted".into()
     } else if code.contains('R') {
         "renamed".into()
     } else {
         "modified".into()
     }
+}
+
+fn is_deleted_status(status: &str) -> bool {
+    let t = status.trim();
+    t == "D" || t.starts_with('D') || t.ends_with('D')
+}
+
+fn is_elixir_source(path: &str) -> bool {
+    let p = path.to_ascii_lowercase();
+    p.ends_with(".ex") || p.ends_with(".exs")
+}
+
+/// Git porcelain paths are relative to the repo root. Mix analysis uses paths
+/// relative to the Mix project, which may be a nested folder (`realtime/`).
+fn strip_git_prefix(path: &str, prefix: &str) -> Option<String> {
+    let path = normalize(path);
+    let prefix = normalize(prefix).trim_end_matches('/').to_string();
+    if prefix.is_empty() {
+        return Some(path);
+    }
+    let path_l = path.to_ascii_lowercase();
+    let pref_l = prefix.to_ascii_lowercase();
+    if path_l == pref_l {
+        return Some(".".into());
+    }
+    let head = format!("{pref_l}/");
+    let rest = path_l.strip_prefix(&head)?;
+    let start = path.len().saturating_sub(rest.len());
+    Some(path[start..].to_string())
+}
+
+fn rewrite_numstat(text: &str, prefix: &str) -> String {
+    let mut out = String::new();
+    for (added, deleted, path) in parse_numstat(text) {
+        let Some(rel) = strip_git_prefix(&path, prefix) else {
+            continue;
+        };
+        out.push_str(&format!("{added}\t{deleted}\t{rel}\n"));
+    }
+    out
 }
 
 fn is_blocked(path: &str) -> bool {
@@ -589,6 +662,56 @@ mod tests {
         assert_eq!(graph.nodes[0].git.as_deref(), Some("modified"));
         assert_eq!(graph.nodes[1].git.as_deref(), Some("unchanged"));
         assert!(graph.edges[0].is_new);
+    }
+
+    #[test]
+    fn strip_prefix_nests_mix_project() {
+        assert_eq!(
+            strip_git_prefix("realtime/apps/rt/lib/a.ex", "realtime/").as_deref(),
+            Some("apps/rt/lib/a.ex")
+        );
+        assert_eq!(strip_git_prefix("docs/readme.md", "realtime/"), None);
+        assert_eq!(strip_git_prefix("lib/a.ex", "").as_deref(), Some("lib/a.ex"));
+    }
+
+    #[test]
+    fn overlay_ignores_deleted_docs_from_parent_repo() {
+        let mut graph = ModuleGraph {
+            nodes: vec![crate::services::analyze::GraphNode {
+                id: "Rt".into(),
+                label: "Rt".into(),
+                path: Some("apps/rt/lib/rt.ex".into()),
+                kind: "lib".into(),
+                wired: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let git = GitSnapshot {
+            repo: Some("x".into()),
+            branch: Some("main".into()),
+            identity_ok: true,
+            identity_hint: None,
+            files: vec![
+                GitFile {
+                    path: "docs/asvs-l1-checklist.md".into(),
+                    status: "D".into(),
+                    added: 0,
+                    deleted: 0,
+                },
+                GitFile {
+                    path: "apps/rt/lib/gone.ex".into(),
+                    status: "D".into(),
+                    added: 0,
+                    deleted: 0,
+                },
+            ],
+            dep_changes: vec![],
+        };
+        overlay(&mut graph, &git);
+        assert!(graph.nodes.iter().all(|n| n.id != "(deleted) asvs-l1-checklist"));
+        assert!(graph.nodes.iter().any(|n| n.id == "(deleted) gone"));
+        assert_eq!(graph.nodes[0].git.as_deref(), Some("unchanged"));
     }
 
     #[test]

@@ -179,6 +179,29 @@ export function ForceGraph({
           b.vx -= (dx / dist) * k;
           b.vy -= (dy / dist) * k;
         }
+        const clusters = new Map<string, Sim[]>();
+        for (const node of nodes) {
+          const key = node.node.boundary;
+          if (!key) continue;
+          const list = clusters.get(key) ?? [];
+          list.push(node);
+          clusters.set(key, list);
+        }
+        for (const group of clusters.values()) {
+          if (group.length < 2) continue;
+          let cx = 0;
+          let cy = 0;
+          for (const node of group) {
+            cx += node.x;
+            cy += node.y;
+          }
+          cx /= group.length;
+          cy /= group.length;
+          for (const node of group) {
+            node.vx += (cx - node.x) * 0.045;
+            node.vy += (cy - node.y) * 0.045;
+          }
+        }
         const pad = 48;
         for (const node of nodes) {
           node.vx += (w / 2 - node.x) * 0.02;
