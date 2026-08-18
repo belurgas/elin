@@ -18,7 +18,8 @@ pub struct ElixirRelease {
     pub is_prerelease: bool,
 }
 
-/// A published Erlang/OTP release that has a Windows download.
+/// A published Erlang/OTP release with a download for this OS.
+/// `zip_url` is the archive (`.zip` on Windows, `.tar.gz` on Unix).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OtpRelease {

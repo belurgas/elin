@@ -431,14 +431,23 @@ pub fn insert_comment(project_path: &str, rel: &str, tag: &str, value: &str) -> 
         return Err(AppError::msg("Keep notes under 240 characters."));
     }
     let rel = rel.replace('\\', "/");
-    if rel.contains("..") {
+    if rel.split('/').any(|part| part.is_empty() || part == "..") {
         return Err(AppError::msg("That path looks unsafe."));
     }
-    let root = PathBuf::from(project_path);
-    let path = root.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
-    if !path.starts_with(&root) || !path.is_file() {
+    let rel_path = PathBuf::from(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if rel_path.is_absolute() {
         return Err(AppError::msg("That source file is not in this project."));
     }
+    let root = PathBuf::from(project_path);
+    let joined = root.join(&rel_path);
+    if !joined.is_file() {
+        return Err(AppError::msg("That source file is not in this project."));
+    }
+    let path = match (fs::canonicalize(&root), fs::canonicalize(&joined)) {
+        (Ok(root), Ok(path)) if path.starts_with(&root) => path,
+        _ if joined.starts_with(&root) => joined,
+        _ => return Err(AppError::msg("That source file is not in this project.")),
+    };
     let text = fs::read_to_string(&path)?;
     let next = splice_comment(&text, &tag, &value);
     if next != text {
@@ -542,6 +551,9 @@ fn infer_role(kind: &str, name: &str, uses: &[String], behaviours: &[String]) ->
         return "router".into();
     }
     if blob.contains("supervisor") {
+        return "supervisor".into();
+    }
+    if uses.iter().any(|u| u == "Application" || u.ends_with(".Application")) {
         return "supervisor".into();
     }
     if blob.contains("genserver") {
@@ -947,5 +959,18 @@ end
         let ignore = splice_comment(&twice, "ignore", "");
         assert!(ignore.contains("# elin:ignore"));
         assert!(ignore.contains("# elin:note world"));
+    }
+
+    #[test]
+    fn insert_comment_stays_in_project() {
+        let dir = scratch("note-path");
+        fs::write(dir.join("lib/a.ex"), "defmodule A do\nend\n").unwrap();
+        let root = dir.to_string_lossy().to_string();
+        assert!(insert_comment(&root, "../a.ex", "note", "x").is_err());
+        assert!(insert_comment(&root, "/etc/passwd", "note", "x").is_err());
+        assert!(insert_comment(&root, "lib/a.ex", "note", "hello").is_ok());
+        let text = fs::read_to_string(dir.join("lib/a.ex")).unwrap();
+        assert!(text.contains("# elin:note hello"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

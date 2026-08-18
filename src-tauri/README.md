@@ -13,7 +13,7 @@ Think of it as a workshop behind a shop window. The window is pretty. The worksh
 - No arguments → open the app (or focus it if it is already running).
 - Arguments like `elin scan` → skip the window, print to a console, exit.
 
-Same `elin.exe` either way.
+Same `elin` binary either way.
 
 ## The map
 
@@ -21,12 +21,12 @@ Same `elin.exe` either way.
 | --- | --- |
 | `src/cli.rs` | The commands you type: `elin scan`, `elin kit add credo`, `elin path`. |
 | `src/commands/` | The doorbell the UI rings. Each function is one job the React side can ask for. |
-| `src/services/` | The work itself: download, unzip, PATH, git, Mix, Hex, the module graph. |
+| `src/services/` | The work itself: download, unpack, PATH, git, Mix, Hex, the module graph. |
 | `src/domain/` | Version numbers and “does this Elixir run on that OTP?”. No files, no network. |
 | `src/desktop.rs` | Tray icon and the little toast window. |
 | `src/instance.rs` | Makes sure a second Elin focuses the first one instead of opening a twin. |
 | `src/services/update.rs` | Asks GitHub Releases if a newer Elin exists, downloads the installer. |
-| `tauri.conf.json` | Window size, installer (NSIS / MSI), icons. |
+| `tauri.conf.json` | Window size, installers (NSIS / MSI / DMG / deb / rpm / AppImage), icons. |
 | `icons/` and `windows/` | Artwork for the app and the Windows installer. |
 
 ## Inside `services/` (the workshop benches)
@@ -36,20 +36,21 @@ You do not need to know all of these. This is the “where do I look?” list.
 | File | Job |
 | --- | --- |
 | `catalog.rs` | Asks Hex and GitHub which Elixir / OTP versions exist. |
+| `host.rs` | OS / arch: OTP URLs, PATH separator, `elixir` vs `elixir.bat`. |
 | `install.rs` | Downloads a pair and unpacks it next to `~/.elixir-install`. |
-| `env.rs` | Reads and writes **user** PATH. Never asks for admin. |
+| `env.rs` | Reads and writes **user** PATH. Never asks for admin or root. |
 | `probe.rs` | “Is `elixir` actually callable from a new terminal?” |
 | `studios.rs` / `plugins.rs` | Finds editors and the Elixir plugins they understand. |
 | `projects.rs` | Remembers Mix apps, pins, `mix.exs` facts. |
 | `analyze.rs` | Walks `lib/` and `test/`, builds the module graph. No Mix compile. |
-| `mixcmd.rs` / `winproc.rs` | Runs `mix.bat` / `elixir.bat` on Windows without quote hell. |
+| `mixcmd.rs` / `winproc.rs` | Runs Mix / Elixir (`mix.bat` on Windows, scripts on Unix) without quote hell. |
 | `mixexs.rs` | Inserts or removes a dep line in `mix.exs`. |
 | `kits.rs` | Credo, Sobelow, and friends: the dep plus a starter config. |
 | `git.rs` | Status, commit. No push. |
 | `hexpm.rs` | Search and package details from hex.pm. |
 | `workspace.rs` | The Studio window: which folder it is, add/remove Hex, Mix tasks. |
 | `watch.rs` | Notices when files change so the graph can refresh. |
-| `update.rs` | GitHub Releases: is there a newer Elin? Download the NSIS installer. |
+| `update.rs` | GitHub Releases: is there a newer Elin? Download the installer for this OS. |
 | `doctor.rs` | The Doctor page’s checklist and one-click fixes. |
 | `store.rs` / `cache.rs` | Durable data vs throwaway downloads. Clearing cache must not forget your projects. |
 

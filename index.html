@@ -2,15 +2,75 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/elin.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/elin.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Elin</title>
     <style>
-      html, body, #root { height: 100%; margin: 0; background: #0b0a12; color: #c9bfd9; }
+      html, body, #root { height: 100%; margin: 0; background: #0b0a12; color: #e8e2f7; }
+      .boot {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(ellipse 50% 40% at 50% 42%, rgba(124, 58, 237, 0.16), transparent 70%),
+          #0b0a12;
+      }
+      .boot img {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      }
+      .boot-mark {
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: 0.04em;
+        color: #f6f3ff;
+      }
+      .boot-bar {
+        width: 108px;
+        height: 2px;
+        overflow: hidden;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .boot-bar > i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #6d28d9, #c4b5fd);
+        animation: boot-slide 1.05s ease-in-out infinite;
+      }
+      @keyframes boot-slide {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(280%); }
+      }
+      html.boot-ghost, html.boot-ghost body, html.boot-ghost #root {
+        background: transparent !important;
+      }
+      html.boot-ghost .boot { display: none; }
     </style>
+    <script>
+      (function () {
+        var q = location.search + location.hash;
+        if (/shell=(toast|tray)/.test(q)) document.documentElement.className = "boot-ghost";
+      })();
+    </script>
   </head>
   <body>
-    <div id="root">Loading Elin…</div>
+    <div id="root">
+      <div class="boot">
+        <img src="/elin.png" alt="" />
+        <div class="boot-mark">Elin</div>
+        <div class="boot-bar"><i></i></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

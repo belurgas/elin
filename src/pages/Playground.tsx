@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import { useApp } from "../state";
-import { Button, Card, PageShell } from "../components/ui";
+import { Button, Card, PageShell, Textarea } from "../components/ui";
 
 export function PlaygroundPage() {
   const { t } = useApp();
@@ -23,10 +23,10 @@ export function PlaygroundPage() {
   return (
     <PageShell title={t.playground.title} subtitle={t.playground.subtitle}>
       <Card>
-        <textarea
+        <Textarea
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="selectable h-44 w-full resize-none rounded-lg border border-white/10 bg-black/30 p-3 font-mono text-sm outline-none focus:border-elixir-500"
+          className="h-44 min-h-44"
         />
         <div className="mt-4">
           <Button disabled={busy} onClick={() => void run()}>

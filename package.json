@@ -2,7 +2,7 @@
   "name": "elin",
   "private": true,
   "version": "0.9.6",
-  "description": "Elixir + OTP installer, studio, and CLI for Windows",
+  "description": "Elixir + OTP installer, studio, and CLI for Windows, macOS, and Linux",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,9 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",

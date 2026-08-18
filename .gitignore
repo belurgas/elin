@@ -41,4 +41,4 @@ erl_crash.dump
 !.env.example
 *.pem
 *.pfx
-
+PLAN.md

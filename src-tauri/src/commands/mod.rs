@@ -229,12 +229,35 @@ pub fn open_path(path: String) -> AppResult<()> {
             .map_err(|e| crate::error::AppError::msg(e.to_string()))?;
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     {
-        let _ = path;
-        Err(crate::error::AppError::msg(
-            "Opening folders from Elin is implemented on Windows in this build.",
-        ))
+        let target = std::path::PathBuf::from(&path);
+        let mut cmd = std::process::Command::new("open");
+        if target.is_file() {
+            cmd.args(["-R", &path]);
+        } else {
+            cmd.arg(&path);
+        }
+        cmd.spawn()
+            .map_err(|e| crate::error::AppError::msg(e.to_string()))?;
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let target = std::path::PathBuf::from(&path);
+        let mut cmd = std::process::Command::new("xdg-open");
+        let arg = if target.is_file() {
+            target
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or(path)
+        } else {
+            path
+        };
+        cmd.arg(arg);
+        cmd.spawn()
+            .map_err(|e| crate::error::AppError::msg(e.to_string()))?;
+        Ok(())
     }
 }
 
@@ -274,6 +297,11 @@ pub async fn check_app_update(force: bool) -> AppResult<crate::services::update:
 pub async fn download_app_update(app: AppHandle, force: bool) -> AppResult<String> {
     let path = crate::services::update::download(&app, force).await?;
     Ok(path.to_string_lossy().into())
+}
+
+#[tauri::command]
+pub fn start_app_update(app: AppHandle, force: bool) -> AppResult<()> {
+    crate::services::update::start(&app, force)
 }
 
 #[tauri::command]

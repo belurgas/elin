@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 static PATHS: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub fn label_for(path: &str) -> String {
-    let key = path.replace('/', "\\").trim_end_matches('\\').to_lowercase();
+    let key = crate::services::host::path_key(path);
     let hash = Sha256::digest(key.as_bytes());
     format!("ws-{}", hex::encode(&hash[..8]))
 }

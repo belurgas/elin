@@ -43,7 +43,7 @@ export function TrayShell() {
   return (
     <div className="flyout flyout-tray">
       <div data-tauri-drag-region className="drag-region flex items-center gap-3 px-4 pb-3 pt-4">
-        <img src="/elin.svg" alt="" className="size-8 rounded-lg" />
+        <img src="/elin.png" alt="" className="size-8 rounded-lg" />
         <div className="min-w-0">
           <div className="font-display text-[17px] leading-none text-mist-50">{t.app}</div>
           <div className="mt-1 truncate text-[11px] text-mist-300">{t.tagline}</div>

@@ -1,4 +1,4 @@
-import { Button, Card, Pill } from "../../components/ui";
+import { Button, Card, Pill, Input } from "../../components/ui";
 import { cn } from "../../lib/cn";
 import type { MixProject } from "../../types";
 import type { Labels } from "./types";
@@ -37,8 +37,8 @@ export function Navigator({
   return (
     <div className="flex min-h-0 flex-col gap-3">
       <div className="flex gap-2">
-        <input
-          className="field flex-1"
+        <Input
+          className="flex-1"
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder={t.search}

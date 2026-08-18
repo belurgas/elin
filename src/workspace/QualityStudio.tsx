@@ -1,6 +1,10 @@
-import { Button, Pill } from "../components/ui";
-import type { KitStatus, ScanReport } from "../types";
+import { Button, Checkbox, Input, Pill } from "../components/ui";
+import type { KitStatus, ScanFinding, ScanReport } from "../types";
 import type { Dictionary } from "../i18n";
+import { shortPath } from "./paths";
+import { cn } from "../lib/cn";
+import { ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
 
 export function QualityStudio({
   kits,
@@ -15,6 +19,7 @@ export function QualityStudio({
   onWriteConfig,
   onOpenConfig,
   onCredoStrict,
+  onOpenFinding,
 }: {
   kits: KitStatus[];
   report: ScanReport | null;
@@ -28,9 +33,12 @@ export function QualityStudio({
   onWriteConfig: (id: string) => void;
   onOpenConfig: (file: string) => void;
   onCredoStrict: (strict: boolean) => void;
+  onOpenFinding?: (file: string, line?: number | null) => void;
 }) {
   const p = t.projects;
   const w = t.workspace;
+  const [findingQuery, setFindingQuery] = useState("");
+  const groups = useMemo(() => groupFindings(report?.findings ?? [], findingQuery), [report, findingQuery]);
   return (
     <div className="studio-stage-enter grid h-full min-h-0 gap-4 overflow-hidden p-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
@@ -74,33 +82,33 @@ export function QualityStudio({
                           {status.configPresent ? "" : ` · ${w.configMissing}`}
                         </span>
                         {status.configPresent ? (
-                          <button
-                            type="button"
-                            className="text-[11px] text-elixir-300 hover:text-white"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => onOpenConfig(status.kit.configFile!)}
                           >
                             {w.openConfig}
-                          </button>
+                          </Button>
                         ) : (
-                          <button
-                            type="button"
-                            className="text-[11px] text-elixir-300 hover:text-white"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             disabled={busy}
                             onClick={() => onWriteConfig(status.kit.id)}
                           >
                             {w.writeConfig}
-                          </button>
+                          </Button>
                         )}
                         {status.kit.id === "credo" && status.installed ? (
-                          <label className="ml-1 flex cursor-pointer items-center gap-1.5 text-[11px] text-mist-100">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(status.credoStrict)}
-                              disabled={busy}
-                              onChange={(e) => onCredoStrict(e.target.checked)}
-                            />
+                          <Checkbox
+                            size="sm"
+                            className="ml-1"
+                            checked={Boolean(status.credoStrict)}
+                            disabled={busy}
+                            onChange={onCredoStrict}
+                          >
                             {w.credoStrict}
-                          </label>
+                          </Checkbox>
                         ) : null}
                       </div>
                     ) : null}
@@ -140,15 +148,29 @@ export function QualityStudio({
             {report.findings.length === 0 ? (
               <p className="text-sm text-mist-300">—</p>
             ) : (
-              <ul className="grid gap-1.5 font-mono text-[12px]">
-                {report.findings.map((f, i) => (
-                  <li key={`${f.tool}-${i}`}>
-                    <span className={f.severity === "error" ? "text-otp-400" : "text-warn-400"}>{f.severity}</span>{" "}
-                    {f.file}
-                    {f.line ? `:${f.line}` : ""} {f.message}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <Input
+                    size="sm"
+                    value={findingQuery}
+                    onChange={(e) => setFindingQuery(e.target.value)}
+                    placeholder={w.findingsFilter}
+                  />
+                  <span className="shrink-0 font-mono text-[10px] text-mist-300">
+                    {groups.reduce((n, g) => n + g.items.length, 0)}/{report.findings.length}
+                  </span>
+                </div>
+                <div className="grid gap-1">
+                  {groups.map((group) => (
+                    <FindingGroup
+                      key={group.file}
+                      group={group}
+                      openDefault={groups.length <= 8}
+                      onOpen={onOpenFinding}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </>
         ) : (
@@ -157,4 +179,70 @@ export function QualityStudio({
       </div>
     </div>
   );
+}
+
+function FindingGroup({
+  group,
+  openDefault,
+  onOpen,
+}: {
+  group: { file: string; items: ScanFinding[] };
+  openDefault: boolean;
+  onOpen?: (file: string, line?: number | null) => void;
+}) {
+  const [open, setOpen] = useState(openDefault);
+  const label = group.file === "—" ? group.file : shortPath(group.file);
+  return (
+    <div>
+      <button
+        type="button"
+        title={group.file}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full min-w-0 items-center gap-1 rounded-md py-0.5 text-left hover:bg-white/5"
+      >
+        <ChevronRight size={11} className={cn("shrink-0 text-mist-300 transition", open && "rotate-90")} />
+        <span className="min-w-0 truncate font-mono text-[11px] text-elixir-300">{label}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-mist-300">{group.items.length}</span>
+      </button>
+      {open ? (
+        <ul className="mt-0.5 grid gap-0.5 pb-1 pl-4">
+          {group.items.map((f, i) => (
+            <li key={`${f.tool}-${f.line}-${i}`}>
+              <button
+                type="button"
+                className="w-full rounded-md px-1 py-0.5 text-left text-[12px] leading-4 hover:bg-white/5"
+                onClick={() => {
+                  if (group.file !== "—") onOpen?.(group.file, f.line);
+                }}
+              >
+                <span className={f.severity === "error" ? "text-otp-400" : "text-warn-400"}>{f.severity}</span>{" "}
+                <span className="text-mist-100">{f.message}</span>
+                {f.line ? <span className="font-mono text-[10px] text-mist-300"> :{f.line}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function groupFindings(findings: ScanFinding[], query: string) {
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? findings.filter(
+        (f) =>
+          f.message.toLowerCase().includes(q) ||
+          (f.file ?? "").toLowerCase().includes(q) ||
+          f.tool.toLowerCase().includes(q),
+      )
+    : findings;
+  const map = new Map<string, ScanFinding[]>();
+  for (const item of filtered) {
+    const key = item.file || "—";
+    const list = map.get(key) ?? [];
+    list.push(item);
+    map.set(key, list);
+  }
+  return [...map.entries()].map(([file, items]) => ({ file, items }));
 }

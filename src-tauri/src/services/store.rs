@@ -66,9 +66,23 @@ fn pid_alive(pid: u32) -> bool {
     }
     #[cfg(not(windows))]
     {
-        let _ = pid;
-        false
+        unix_pid_alive(pid)
     }
+}
+
+#[cfg(not(windows))]
+fn unix_pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    if cfg!(target_os = "linux") && std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        return true;
+    }
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 #[cfg(windows)]

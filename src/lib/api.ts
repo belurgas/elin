@@ -101,6 +101,7 @@ export const api = {
   addElinToPath: () => invoke<string>("add_elin_to_path"),
   addToPath: (name: string) => invoke<string>("add_bin_to_path", { name }),
   checkAppUpdate: (force = false) => invoke<AppUpdate>("check_app_update", { force }),
+  startAppUpdate: (force = false) => invoke<void>("start_app_update", { force }),
   downloadAppUpdate: (force = false) => invoke<string>("download_app_update", { force }),
   installAppUpdate: (path: string) => invoke<void>("install_app_update", { path }),
   toast: (toast: ToastPayload) => invoke<void>("show_toast", { toast }),
@@ -166,5 +167,6 @@ export async function pickFolder(): Promise<string | null> {
 }
 
 export async function browse(url: string): Promise<void> {
-  await openUrl(url);
+  if (!/^(https?:|mailto:)/i.test(url.trim())) return;
+  await openUrl(url.trim());
 }

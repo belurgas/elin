@@ -3,7 +3,7 @@ import { ChevronDown, Flame, GitBranch, Package, Play, Share2, ShieldCheck } fro
 import { api, onMixLine, onWorkspaceFs } from "../lib/api";
 import { useApp } from "../state";
 import { Titlebar } from "../components/Titlebar";
-import { Button } from "../components/ui";
+import { Button, Input, Popover } from "../components/ui";
 import { ForceGraph } from "./ForceGraph";
 import { HexAdd } from "./HexAdd";
 import { ModuleTree } from "./ModuleTree";
@@ -15,6 +15,7 @@ import { Overview } from "../pages/studio/Overview";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { cn } from "../lib/cn";
 import type { ElinComment, GitSnapshot, GraphNode, KitStatus, MixProject, ModuleGraph, ScanReport } from "../types";
+import { samePath } from "./paths";
 
 type Stage = "graph" | "hex" | "git" | "quality" | "elixir";
 
@@ -232,8 +233,8 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
   function menuItems(node: GraphNode): MenuItem[] {
     return [
       { kind: "item", label: t.workspace.openEditor, onClick: () => openNode(node), muted: !primary },
-      { kind: "item", label: t.workspace.copyModule, onClick: () => void navigator.clipboard.writeText(node.id) },
-      { kind: "item", label: t.workspace.copyPath, onClick: () => void navigator.clipboard.writeText(node.path ?? node.id) },
+      { kind: "item", label: t.workspace.copyModule, onClick: () => void navigator.clipboard.writeText(node.id).catch(() => undefined) },
+      { kind: "item", label: t.workspace.copyPath, onClick: () => void navigator.clipboard.writeText(node.path ?? node.id).catch(() => undefined) },
       { kind: "item", label: t.workspace.openFolder, onClick: () => void api.openPath(dirOf(node.path)) },
       { kind: "sep" },
       { kind: "item", label: t.workspace.focusGraph, onClick: () => selectNode(node) },
@@ -241,9 +242,7 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
   }
 
   function goToComment(comment: ElinComment) {
-    const node = graph?.nodes.find(
-      (n) => n.path && n.path.replace(/\\/g, "/").toLowerCase() === comment.file.replace(/\\/g, "/").toLowerCase(),
-    );
+    const node = graph?.nodes.find((n) => n.path && samePath(n.path, comment.file));
     if (node) selectNode(node);
     if (primary) {
       void api.openInStudio(primary, projectPath, comment.file, comment.line).catch((err) => {
@@ -304,9 +303,10 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                 </Button>
               </div>
               {runOpen ? (
-                <div className="absolute left-0 top-full z-30 mt-1 w-80 rounded-lg border border-white/10 bg-ink-800 p-2 shadow-xl">
-                  <input
-                    className="field w-full font-mono text-[12px]"
+                <Popover className="absolute left-0 top-full z-50 mt-1 w-80">
+                  <Input
+                    size="sm"
+                    className="font-mono"
                     value={runCmd}
                     placeholder={startCommand(project, "")}
                     onChange={(e) => {
@@ -315,7 +315,7 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                     }}
                   />
                   <p className="mt-1.5 text-[10px] leading-4 text-mist-300">{t.workspace.runCustom}</p>
-                </div>
+                </Popover>
               ) : null}
             </div>
             <Button size="sm" disabled={busy} onClick={() => void run("compile")}>
@@ -368,7 +368,7 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                     onQuery={setQuery}
                     onSelect={selectNode}
                     onOpen={openNode}
-                    onCopy={(n) => void navigator.clipboard.writeText(n.id)}
+                    onCopy={(n) => void navigator.clipboard.writeText(n.id).catch(() => undefined)}
                     t={t}
                   />
                 ) : (
@@ -378,6 +378,7 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                     setCommitFiles={setCommitFiles}
                     selectAll={t.workspace.selectAll}
                     selectNone={t.workspace.selectNone}
+                    filterPlaceholder={t.workspace.gitFilter}
                   />
                 )}
               </aside>
@@ -569,6 +570,15 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                       setBusy(false);
                     }
                   }}
+                  onOpenFinding={(file, line) => {
+                    const node = graph?.nodes.find((n) => n.path && samePath(n.path, file));
+                    if (node) setPicked(node);
+                    if (primary) {
+                      void api.openInStudio(primary, projectPath, file, line ?? undefined).catch((err) => {
+                        setError(err instanceof Error ? err.message : String(err));
+                      });
+                    }
+                  }}
                 />
                 </div>
               ) : null}
@@ -603,10 +613,10 @@ export function WorkspaceApp({ projectPath }: { projectPath: string }) {
                     await api.addComment(projectPath, file, tag, value);
                     setGraph((g) => {
                       if (!g) return g;
-                      const next = (g.comments ?? []).filter((c) => !(c.file === file && c.tag === tag));
+                      const next = (g.comments ?? []).filter((c) => !(samePath(c.file, file) && c.tag === tag));
                       next.push({ file, line: 1, tag, value, module: picked?.id });
                       const nodes = g.nodes.map((n) =>
-                        n.path === file && tag === "note"
+                        samePath(n.path ?? "", file) && tag === "note"
                           ? { ...n, notes: [...(n.notes ?? []).filter((x) => x !== value), value] }
                           : n,
                       );

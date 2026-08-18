@@ -30,7 +30,7 @@ struct Session {
 static SESSIONS: Lazy<Mutex<HashMap<String, Session>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn key(path: &str) -> String {
-    path.replace('/', "\\").trim_end_matches('\\').to_lowercase()
+    crate::services::host::path_key(path)
 }
 
 pub fn start(app: AppHandle, project_path: String) -> crate::error::AppResult<()> {
@@ -176,9 +176,10 @@ fn ignored(path: &Path) -> bool {
         "priv\\static",
         "priv/static",
     ];
-    let text = path.to_string_lossy().replace('/', "\\").to_ascii_lowercase();
+    let text = crate::services::host::path_key(&path.to_string_lossy());
     SKIP.iter().any(|seg| {
-        text.contains(&format!("\\{seg}\\")) || text.ends_with(&format!("\\{seg}"))
+        let seg = seg.replace('\\', "/");
+        text.contains(&format!("/{seg}/")) || text.ends_with(&format!("/{seg}"))
     })
 }
 

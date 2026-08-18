@@ -4,7 +4,6 @@ use crate::error::{AppError, AppResult};
 use crate::services::install::list_installed;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,22 +36,12 @@ fn toolchain_bins() -> AppResult<(PathBuf, PathBuf)> {
 }
 
 fn mix_run(otp_bin: &Path, elixir_bin: &Path, cwd: Option<&Path>, args: &[&str]) -> AppResult<std::process::Output> {
-    let mix = elixir_bin.join("mix.bat");
+    let mix = crate::services::host::mix_cmd(elixir_bin);
     let path = crate::services::winproc::isolated_path(otp_bin, elixir_bin);
     let home = crate::services::winproc::erlang_home(otp_bin);
-    let mut cmd = std::process::Command::new("cmd.exe");
-    cmd.arg("/D").arg("/C").arg(&mix).args(args).env("PATH", &path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(home) = home {
-        cmd.env("ERLANG_HOME", home);
-    }
-    if let Some(cwd) = cwd {
-        cmd.current_dir(cwd);
-    }
-    crate::services::winproc::hide_console(&mut cmd);
-    Ok(cmd.output()?)
+    let child = crate::services::winproc::spawn_bat(&mix, args, &path, home.as_deref(), cwd)
+        .map_err(|e| AppError::msg(e.to_string()))?;
+    child.wait_with_output().map_err(|e| AppError::msg(e.to_string()))
 }
 
 /// Create a new Mix or Phoenix project in the chosen folder.
@@ -137,9 +126,9 @@ pub fn eval_snippet(code: String) -> AppResult<String> {
         return Err(AppError::msg("Snippet is too long (16 KB max)."));
     }
     let (otp_bin, elixir_bin) = toolchain_bins()?;
-    let elixir = elixir_bin.join("elixir.bat");
+    let elixir = crate::services::host::elixir_cmd(&elixir_bin);
     if !elixir.exists() {
-        return Err(AppError::msg("elixir.bat was not found next to Elixir."));
+        return Err(AppError::msg("elixir was not found next to the toolchain."));
     }
     let dir = std::env::temp_dir().join("elin-play");
     std::fs::create_dir_all(&dir)?;

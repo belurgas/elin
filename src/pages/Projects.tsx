@@ -231,14 +231,14 @@ export function ProjectsPage() {
           {output}
         </Card>
       ) : null}
-      {creating ? (
-        <CreateDialog
-          t={t.projects}
-          host={host?.home ?? ""}
-          catalog={catalog}
-          busy={busy}
-          onClose={() => setCreating(false)}
-          onCreate={async (name, directory, template, kitIds) => {
+      <CreateDialog
+        open={creating}
+        t={t.projects}
+        host={host?.home ?? ""}
+        catalog={catalog}
+        busy={busy}
+        onClose={() => setCreating(false)}
+        onCreate={async (name, directory, template, kitIds) => {
             setBusy(true);
             setError(null);
             try {
@@ -255,7 +255,6 @@ export function ProjectsPage() {
             }
           }}
         />
-      ) : null}
     </PageShell>
   );
 }

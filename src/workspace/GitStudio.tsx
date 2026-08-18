@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Button, Menu } from "../components/ui";
+import { Button, Menu, Input } from "../components/ui";
 import type { GitFile, GitSnapshot } from "../types";
 import type { Dictionary } from "../i18n";
 import { cn } from "../lib/cn";
 import { ChevronRight } from "lucide-react";
+import { appFolder, appLabel, shortAppLabels, shortPath } from "./paths";
 
 export function GitStudio({
   git,
@@ -86,24 +87,36 @@ export function GitStudio({
               </Button>
             </div>
             {staged.length ? (
-              <div className="mt-5 grid gap-0.5">
-                {staged.slice(0, 12).map((file) => {
-                  const mark = gitMark(file.status);
-                  return (
-                    <div key={file.path} className="flex min-w-0 items-center gap-2 py-0.5 font-mono text-[11px]">
-                      <span className={cn("w-10 shrink-0 uppercase", mark.cls)}>{mark.label}</span>
-                      <span className="min-w-0 truncate text-mist-100">{file.path}</span>
-                      {file.added || file.deleted ? (
-                        <span className="ml-auto shrink-0 text-mist-300">
-                          +{file.added}/−{file.deleted}
-                        </span>
+              <div className="mt-5 max-h-[40vh] overflow-y-auto">
+                <div className="grid gap-3">
+                  {groupGitFiles(staged).map((group) => (
+                    <div key={group.app}>
+                      {group.showApp ? (
+                        <div className="mb-1 text-[10px] uppercase tracking-wider text-mist-300">{group.app}</div>
                       ) : null}
+                      <div className="grid gap-0.5">
+                        {group.files.map((file) => {
+                          const mark = gitMark(file.status);
+                          return (
+                            <div
+                              key={file.path}
+                              className="flex min-w-0 items-center gap-2 py-0.5 font-mono text-[11px]"
+                              title={file.path}
+                            >
+                              <span className={cn("w-10 shrink-0 uppercase", mark.cls)}>{mark.label}</span>
+                              <span className="min-w-0 truncate text-mist-100">{shortPath(file.path)}</span>
+                              {file.added || file.deleted ? (
+                                <span className="ml-auto shrink-0 text-mist-300">
+                                  +{file.added}/−{file.deleted}
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  );
-                })}
-                {staged.length > 12 ? (
-                  <div className="pt-1 text-[11px] text-mist-300">+{staged.length - 12}</div>
-                ) : null}
+                  ))}
+                </div>
               </div>
             ) : (
               <p className="mt-6 text-[13px] text-mist-300">{w.gitEmpty}</p>
@@ -122,8 +135,8 @@ export function GitStudio({
         )}
       </div>
       <div className="flex shrink-0 gap-2 border-t border-white/8 px-6 py-4">
-        <input
-          className="field flex-1"
+        <Input
+          className="flex-1"
           value={commitMsg}
           onChange={(e) => setCommitMsg(e.target.value)}
           placeholder={p.commitMsg}
@@ -144,30 +157,40 @@ export function GitRail({
   setCommitFiles,
   selectAll,
   selectNone,
+  filterPlaceholder,
 }: {
   files: GitFile[];
   commitFiles: string[];
   setCommitFiles: (v: string[]) => void;
   selectAll: string;
   selectNone: string;
+  filterPlaceholder: string;
 }) {
-  const tree = useMemo(() => buildGitTree(files), [files]);
+  const [query, setQuery] = useState("");
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? files.filter((f) => f.path.toLowerCase().includes(q)) : files;
+  }, [files, query]);
+  const tree = useMemo(() => buildGitTree(shown), [shown]);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const allOn = files.length > 0 && files.every((f) => commitFiles.includes(f.path));
-  const collapseDeep = files.length > 36;
+  const collapseDeep = shown.length > 36;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-between px-3 py-2">
-        <span className="text-[11px] text-mist-300">{files.length}</span>
-        <button
-          type="button"
-          className="text-[11px] text-elixir-300 hover:text-white"
-          onClick={() => setCommitFiles(allOn ? [] : files.map((f) => f.path))}
-        >
+        <span className="font-mono text-[11px] text-mist-300">
+          {commitFiles.length}/{files.length}
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => setCommitFiles(allOn ? [] : files.map((f) => f.path))}>
           {allOn ? selectNone : selectAll}
-        </button>
+        </Button>
       </div>
+      {files.length > 12 ? (
+        <div className="shrink-0 px-2 pb-2">
+          <Input size="sm" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={filterPlaceholder} />
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {tree.map((b) => (
           <GitRow
@@ -266,7 +289,7 @@ function buildGitTree(files: GitFile[]): GitBranch[] {
     let acc = "";
     for (let i = 0; i < parts.length; i++) {
       acc = acc ? `${acc}/${parts[i]}` : parts[i];
-      let child = level.find((c) => c.name === parts[i]);
+      let child = level.find((c) => c.path === acc);
       if (!child) {
         child = { name: parts[i], path: acc, kids: [] };
         level.push(child);
@@ -275,7 +298,32 @@ function buildGitTree(files: GitFile[]): GitBranch[] {
       level = child.kids;
     }
   }
+  return labelGitRoots(flattenUnary(root, ["apps"]));
+}
+
+function flattenUnary(root: GitBranch[], names: string[]): GitBranch[] {
+  if (root.length === 1 && names.includes(root[0].name) && root[0].kids.length && !root[0].file) {
+    return root[0].kids;
+  }
   return root;
+}
+
+function labelGitRoots(root: GitBranch[]): GitBranch[] {
+  const labels = shortAppLabels(root.map((b) => b.name));
+  return root.map((b) => ({ ...b, name: labels.get(b.name) ?? b.name }));
+}
+
+function groupGitFiles(files: GitFile[]) {
+  const peers = [...new Set(files.map((f) => appFolder(f.path)).filter((v): v is string => Boolean(v)))];
+  const map = new Map<string, GitFile[]>();
+  for (const file of files) {
+    const app = appLabel(file.path, peers);
+    const list = map.get(app) ?? [];
+    list.push(file);
+    map.set(app, list);
+  }
+  const groups = [...map.entries()].map(([app, items]) => ({ app, files: items, showApp: map.size > 1 }));
+  return groups.sort((a, b) => a.app.localeCompare(b.app));
 }
 
 function gitMark(status: string): { label: string; cls: string } {

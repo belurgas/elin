@@ -7,6 +7,7 @@ pub mod doctor;
 pub mod env;
 pub mod git;
 pub mod hexpm;
+pub mod host;
 pub mod install;
 pub mod kits;
 pub mod mixcmd;

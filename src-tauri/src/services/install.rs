@@ -1,17 +1,19 @@
-//! Download, extract, and activate Elixir + OTP using the official zip layout
-//! from Hex Bob and GitHub (`~/.elixir-install/installs`), so Elin stays
+//! Download, extract, and activate Elixir + OTP using the official
+//! elixir-install layout (`~/.elixir-install/installs`), so Elin stays
 //! compatible with https://elixir-lang.org/install.html.
 
 use crate::domain::{recommended_otp_major, ElixirVersion, InstalledPair, OtpVersion, VersionCatalog};
 use crate::error::{AppError, AppResult};
 use crate::services::catalog::{elixir_zip_url, fetch_catalog};
 use crate::services::env::{managed_root, set_user_path_entries};
+use crate::services::host::{self, elixir_cmd, elixir_script, erl_binary, mix_cmd};
 use crate::services::net;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tauri::{AppHandle, Emitter};
 use zip::ZipArchive;
 
@@ -75,7 +77,7 @@ pub async fn install_pair(
         )));
     }
 
-    emit_progress(&app, "resolve", "Checking latest Windows assets…", 4);
+    emit_progress(&app, "resolve", "Checking latest OTP and Elixir assets…", 4);
     let catalog = fetch_catalog(true, false).await?;
     let otp_release = catalog
         .otp
@@ -87,7 +89,7 @@ pub async fn install_pair(
     let otp_url = otp_release
         .zip_url
         .or(otp_release.exe_url.clone())
-        .ok_or_else(|| AppError::msg("No Windows download is available for this OTP version"))?;
+        .ok_or_else(|| AppError::msg("No download is available for this OTP version on this OS"))?;
 
     let cache = dirs::cache_dir()
         .unwrap_or_else(|| std::env::temp_dir())
@@ -95,14 +97,16 @@ pub async fn install_pair(
         .join("downloads");
     fs::create_dir_all(&cache)?;
 
-    let otp_archive = cache.join(format!("otp_{otp}.zip"));
+    let otp_archive = cache.join(otp_archive_name(&otp, &otp_url));
     emit_progress(&app, "otp-download", &format!("Downloading Erlang/OTP {otp}…"), 8);
     download_file(&app, &otp_url, &otp_archive, 8, 38).await?;
 
     let otp_dest = otp_dir(&otp)?;
     emit_progress(&app, "otp-extract", "Unpacking Erlang/OTP…", 42);
-    extract_zip(&otp_archive, &otp_dest)?;
-    flatten_if_nested(&otp_dest, "erl.exe")?;
+    extract_archive(&otp_archive, &otp_dest)?;
+    flatten_if_nested(&otp_dest, erl_binary())?;
+    run_otp_install_script(&otp_dest)?;
+    chmod_binaries(&otp_dest);
 
     let elixir_url = elixir_zip_url(&elixir, otp_ver.major);
     let elixir_archive = cache.join(format!("elixir_{elixir}_otp_{}.zip", otp_ver.major));
@@ -116,11 +120,12 @@ pub async fn install_pair(
 
     let elixir_dest = elixir_dir(&elixir, otp_ver.major)?;
     emit_progress(&app, "elixir-extract", "Unpacking Elixir…", 78);
-    extract_zip(&elixir_archive, &elixir_dest)?;
-    flatten_if_nested(&elixir_dest, "elixir.bat")?;
+    extract_archive(&elixir_archive, &elixir_dest)?;
+    flatten_if_nested(&elixir_dest, elixir_script())?;
+    chmod_binaries(&elixir_dest);
 
-    let otp_bin = find_bin_dir(&otp_dest, "erl.exe")?;
-    let elixir_bin = find_bin_dir(&elixir_dest, "elixir.bat")
+    let otp_bin = find_bin_dir(&otp_dest, erl_binary())?;
+    let elixir_bin = find_bin_dir(&elixir_dest, elixir_script())
         .or_else(|_| find_bin_dir(&elixir_dest, "elixir"))?;
 
     if add_to_path {
@@ -191,7 +196,10 @@ pub fn list_installed() -> AppResult<Vec<InstalledPair>> {
         let Ok(major) = otp_major_raw.parse::<u32>() else {
             continue;
         };
-        let elixir_bin = match find_bin_dir(&entry.path(), "elixir.bat") {
+        let elixir_bin = match find_bin_dir(&entry.path(), elixir_script())
+            .or_else(|_| find_bin_dir(&entry.path(), "elixir.bat"))
+            .or_else(|_| find_bin_dir(&entry.path(), "elixir"))
+        {
             Ok(p) => p,
             Err(_) => continue,
         };
@@ -200,7 +208,12 @@ pub fn list_installed() -> AppResult<Vec<InstalledPair>> {
         let otp = find_matching_otp(&otp_root, major).unwrap_or_else(|| format!("{major}.x"));
         let otp_path = otp_dir(&otp)
             .ok()
-            .and_then(|p| find_bin_dir(&p, "erl.exe").ok())
+            .and_then(|p| {
+                find_bin_dir(&p, erl_binary())
+                    .or_else(|_| find_bin_dir(&p, "erl.exe"))
+                    .or_else(|_| find_bin_dir(&p, "erl"))
+                    .ok()
+            })
             .map(|p| p.to_string_lossy().into())
             .unwrap_or_default();
         let on_path = crate::services::env::path_contains_dir(
@@ -249,8 +262,12 @@ pub fn pair_satisfying(req: &str) -> Option<InstalledPair> {
         ElixirVersion::parse(&p.elixir)
             .map(|v| crate::domain::elixir_satisfies(req, &v))
             .unwrap_or(false)
-            && Path::new(&p.elixir_path).join("elixir.bat").exists()
-            && Path::new(&p.otp_path).join("erl.exe").exists()
+            && (Path::new(&p.elixir_path).join(elixir_script()).exists()
+                || Path::new(&p.elixir_path).join("elixir.bat").exists()
+                || Path::new(&p.elixir_path).join("elixir").exists())
+            && (Path::new(&p.otp_path).join(erl_binary()).exists()
+                || Path::new(&p.otp_path).join("erl.exe").exists()
+                || Path::new(&p.otp_path).join("erl").exists())
     });
     pairs.sort_by(|a, b| {
         ElixirVersion::parse(&b.elixir)
@@ -313,14 +330,18 @@ pub fn pick_from_catalog(req: &str, catalog: &VersionCatalog) -> AppResult<(Stri
         .iter()
         .filter(|o| o.major == major && !o.is_prerelease && o.zip_url.is_some())
         .max_by_key(|o| OtpVersion::parse(&o.version))
-        .ok_or_else(|| AppError::msg(format!("No Windows OTP {major} build is in the catalog.")))?;
+        .ok_or_else(|| AppError::msg(format!("No OTP {major} build is in the catalog for this OS.")))?;
     Ok((elixir.version.clone(), otp.version.clone()))
 }
 
 pub fn activate_pair(elixir: &str, otp: &str) -> AppResult<InstalledPair> {
     let otp_ver = OtpVersion::parse(otp).ok_or_else(|| AppError::msg("Invalid OTP version"))?;
-    let otp_bin = find_bin_dir(&otp_dir(otp)?, "erl.exe")?;
-    let elixir_bin = find_bin_dir(&elixir_dir(elixir, otp_ver.major)?, "elixir.bat")?;
+    let otp_bin = find_bin_dir(&otp_dir(otp)?, erl_binary())
+        .or_else(|_| find_bin_dir(&otp_dir(otp)?, "erl.exe"))
+        .or_else(|_| find_bin_dir(&otp_dir(otp)?, "erl"))?;
+    let elixir_bin = find_bin_dir(&elixir_dir(elixir, otp_ver.major)?, elixir_script())
+        .or_else(|_| find_bin_dir(&elixir_dir(elixir, otp_ver.major)?, "elixir.bat"))
+        .or_else(|_| find_bin_dir(&elixir_dir(elixir, otp_ver.major)?, "elixir"))?;
     set_user_path_entries(&[otp_bin.clone(), elixir_bin.clone()])?;
     let pair = InstalledPair {
         elixir: elixir.into(),
@@ -411,6 +432,34 @@ async fn download_file(
     Ok(())
 }
 
+fn extract_archive(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    match host::otp_archive_kind_from_url(&archive_path.to_string_lossy()) {
+        host::ArchiveKind::TarGz => extract_tar_gz(archive_path, dest),
+        host::ArchiveKind::Zip => extract_zip(archive_path, dest),
+    }
+}
+
+fn otp_archive_name(otp: &str, url: &str) -> String {
+    match host::otp_archive_kind_from_url(url) {
+        host::ArchiveKind::TarGz => format!("otp_{otp}.tar.gz"),
+        host::ArchiveKind::Zip => format!("otp_{otp}.zip"),
+    }
+}
+
+fn extract_tar_gz(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    if dest.exists() {
+        fs::remove_dir_all(dest)?;
+    }
+    fs::create_dir_all(dest)?;
+    let file = File::open(archive_path)?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+    archive
+        .unpack(dest)
+        .map_err(|e| AppError::Install(format!("Could not unpack OTP archive: {e}")))?;
+    Ok(())
+}
+
 fn extract_zip(archive_path: &Path, dest: &Path) -> AppResult<()> {
     if dest.exists() {
         fs::remove_dir_all(dest)?;
@@ -455,6 +504,59 @@ fn flatten_if_nested(dest: &Path, binary: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn chmod_binaries(root: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut targets = vec![root.join("Install")];
+        if let Ok(bin) = fs::read_dir(root.join("bin")) {
+            targets.extend(bin.flatten().map(|e| e.path()));
+        }
+        for path in targets {
+            if !path.is_file() {
+                continue;
+            }
+            if let Ok(meta) = path.metadata() {
+                let mut perms = meta.permissions();
+                perms.set_mode(perms.mode() | 0o755);
+                let _ = fs::set_permissions(&path, perms);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = root;
+    }
+}
+
+/// Hex Bob Linux OTP tarballs need `./Install -sasl $PWD` before `erl` works.
+fn run_otp_install_script(otp_dest: &Path) -> AppResult<()> {
+    let script = otp_dest.join("Install");
+    if !script.exists() {
+        return Ok(());
+    }
+    chmod_binaries(otp_dest);
+    let mut cmd = Command::new(&script);
+    cmd.arg("-sasl")
+        .arg(otp_dest)
+        .current_dir(otp_dest)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    crate::services::winproc::hide_console(&mut cmd);
+    let output = cmd
+        .output()
+        .map_err(|e| AppError::Install(format!("Could not run OTP Install: {e}")))?;
+    if !output.status.success() {
+        return Err(AppError::Install(format!(
+            "OTP Install script failed: {}",
+            crate::services::winproc::output_text(&output).trim()
+        )));
+    }
+    chmod_binaries(otp_dest);
+    Ok(())
+}
+
 fn find_bin_dir(root: &Path, binary: &str) -> AppResult<PathBuf> {
     let direct = root.join("bin");
     if direct.join(binary).exists() {
@@ -481,13 +583,18 @@ pub fn run_with_toolchain(
     args: &[&str],
 ) -> AppResult<String> {
     let exe = if program == "elixir" {
-        elixir_bin.join("elixir.bat")
+        elixir_cmd(elixir_bin)
     } else if program == "mix" {
-        elixir_bin.join("mix.bat")
+        mix_cmd(elixir_bin)
     } else if program == "iex" {
-        elixir_bin.join("iex.bat")
+        host::iex_cmd(elixir_bin)
     } else {
         PathBuf::from(program)
+    };
+    let exe = if exe.exists() {
+        exe
+    } else {
+        host::find_script(elixir_bin, program).unwrap_or(exe)
     };
     if !exe.exists() {
         return Err(AppError::Install(format!(

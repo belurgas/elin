@@ -23,9 +23,9 @@ pub fn mix_with_lines(
     let (otp_bin, elixir_bin) = crate::services::projects::bins_for_project(&project_path.to_string_lossy())
         .or_else(active_bins)
         .ok_or_else(|| AppError::msg("Install Elixir first — Mix needs a toolchain."))?;
-    let mix = elixir_bin.join("mix.bat");
+    let mix = crate::services::host::mix_cmd(&elixir_bin);
     if !mix.exists() {
-        return Err(AppError::msg("mix.bat was not found next to Elixir."));
+        return Err(AppError::msg("mix was not found next to Elixir."));
     }
     let path = crate::services::winproc::isolated_path(&otp_bin, &elixir_bin);
     let home = crate::services::winproc::erlang_home(&otp_bin);
@@ -217,16 +217,16 @@ pub fn shell_in_project(
     let mut path = crate::services::winproc::isolated_path(&otp_bin, &elixir_bin);
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            path = format!("{};{path}", dir.display());
+            path = format!(
+                "{}{}{path}",
+                dir.display(),
+                crate::services::host::path_sep()
+            );
         }
     }
     let home = crate::services::winproc::erlang_home(&otp_bin);
-    let mut cmd = Command::new("cmd.exe");
-    cmd.arg("/D")
-        .arg("/S")
-        .arg("/C")
-        .arg(command)
-        .current_dir(project_path)
+    let mut cmd = shell_command(command);
+    cmd.current_dir(project_path)
         .env("PATH", &path)
         .env("TERM", "dumb")
         .stdin(Stdio::null())
@@ -244,6 +244,21 @@ pub fn shell_in_project(
         format!("`{command}` failed"),
         on_line,
     )
+}
+
+fn shell_command(command: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg("/D").arg("/S").arg("/C").arg(command);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(command);
+        cmd
+    }
 }
 
 #[cfg(test)]

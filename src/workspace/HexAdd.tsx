@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { api, browse } from "../lib/api";
-import { Button, Pill } from "../components/ui";
+import { Button, Pill, Input } from "../components/ui";
 import type { HexPackage, MixDep } from "../types";
 import type { Dictionary } from "../i18n";
 import { cn } from "../lib/cn";
@@ -26,24 +26,27 @@ export function HexAdd({
   onError: (msg: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [depQuery, setDepQuery] = useState("");
   const [items, setItems] = useState<HexPackage[]>([]);
   const [picked, setPicked] = useState<HexPackage | null>(null);
   const [loading, setLoading] = useState(true);
+  const searchGen = useRef(0);
   const lockBy = new Map(locked.map((d) => [d.name, d.spec]));
 
   async function search(value = query) {
+    const gen = ++searchGen.current;
     onError("");
-    onBusy(true);
     setLoading(true);
     try {
       const next = await api.hex(value, false);
+      if (gen !== searchGen.current) return;
       setItems(next);
       setPicked((current) => next.find((p) => p.name === current?.name) ?? next[0] ?? null);
     } catch (err) {
+      if (gen !== searchGen.current) return;
       onError(err instanceof Error ? err.message : String(err));
     } finally {
-      onBusy(false);
-      setLoading(false);
+      if (gen === searchGen.current) setLoading(false);
     }
   }
 
@@ -65,27 +68,42 @@ export function HexAdd({
   }, [picked?.name]);
 
   const inProject = picked ? deps.some((d) => d.name === picked.name) : false;
+  const depShown = depQuery.trim()
+    ? deps.filter((d) => d.name.toLowerCase().includes(depQuery.trim().toLowerCase()))
+    : deps;
 
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-white/8">
         <div className="shrink-0 border-b border-white/8 px-4 py-3">
-          <div className="mb-2 text-[10px] uppercase tracking-wider text-mist-300">{t.workspace.inProject}</div>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <div className="text-[10px] uppercase tracking-wider text-mist-300">{t.workspace.inProject}</div>
+            <span className="font-mono text-[10px] text-mist-300">{deps.length}</span>
+          </div>
+          {deps.length > 8 ? (
+            <Input
+              size="sm"
+              className="mb-2"
+              value={depQuery}
+              onChange={(e) => setDepQuery(e.target.value)}
+              placeholder={t.workspace.depsFilter}
+            />
+          ) : null}
           {deps.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {deps.map((dep) => {
+            <div className={cn("grid gap-0.5", deps.length > 8 && "max-h-52 overflow-y-auto")}>
+              {depShown.map((dep) => {
                 const lock = lockBy.get(dep.name);
                 return (
-                  <span
+                  <div
                     key={dep.name}
                     className={cn(
-                      "inline-flex max-w-full items-center gap-1.5 rounded-md bg-white/5 px-2 py-1 font-mono text-[11px]",
+                      "flex min-w-0 items-center gap-2 rounded-md px-2 py-1 font-mono text-[11px] hover:bg-white/5",
                       picked?.name === dep.name && "bg-elixir-600/20",
                     )}
                   >
                     <button
                       type="button"
-                      className="min-w-0 truncate text-left hover:text-white"
+                      className="min-w-0 flex-1 truncate text-left"
                       onClick={() => {
                         setQuery(dep.name);
                         void search(dep.name);
@@ -97,7 +115,7 @@ export function HexAdd({
                     <button
                       type="button"
                       title={t.workspace.removeDep}
-                      className="text-mist-300 hover:text-otp-400"
+                      className="shrink-0 text-mist-300 hover:text-otp-400"
                       disabled={busy}
                       onClick={() => {
                         onBusy(true);
@@ -110,7 +128,7 @@ export function HexAdd({
                     >
                       <X size={11} />
                     </button>
-                  </span>
+                  </div>
                 );
               })}
             </div>
@@ -125,8 +143,8 @@ export function HexAdd({
             void search();
           }}
         >
-          <input
-            className="field flex-1"
+          <Input
+            className="flex-1"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t.hex.placeholder}

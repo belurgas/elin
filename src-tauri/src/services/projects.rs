@@ -184,10 +184,25 @@ pub fn deep_scan(app: AppHandle, extra_roots: Vec<String>) -> AppResult<Vec<MixP
     CANCEL.store(false, Ordering::SeqCst);
     let mut roots: Vec<PathBuf> = extra_roots.into_iter().map(PathBuf::from).collect();
     if roots.is_empty() {
-        for letter in b'C'..=b'Z' {
-            let drive = PathBuf::from(format!("{}:\\", letter as char));
-            if drive.exists() {
-                roots.push(drive);
+        #[cfg(windows)]
+        {
+            for letter in b'C'..=b'Z' {
+                let drive = PathBuf::from(format!("{}:\\", letter as char));
+                if drive.exists() {
+                    roots.push(drive);
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if let Some(home) = dirs::home_dir() {
+                roots.push(home);
+            }
+            for extra in ["/opt", "/usr/local/src", "/srv"] {
+                let p = PathBuf::from(extra);
+                if p.exists() {
+                    roots.push(p);
+                }
             }
         }
     }
@@ -272,6 +287,12 @@ fn skip_dir(name: &str) -> bool {
             | ".elixir_ls"
             | "vendor"
             | "dist"
+            | "Library"
+            | "Applications"
+            | "proc"
+            | "sys"
+            | "dev"
+            | "run"
             | ".cache"
             | ".nuget"
             | ".cargo"
@@ -362,9 +383,7 @@ struct ProjectPin {
 }
 
 fn pin_key(path: &str) -> String {
-    path.replace('/', "\\")
-        .trim_end_matches('\\')
-        .to_lowercase()
+    crate::services::host::path_key(path)
 }
 
 fn load_pins() -> BTreeMap<String, ProjectPin> {
@@ -510,13 +529,17 @@ pub fn open_in_studio(studio: Studio, path: String, file: Option<String>, line: 
         .clone()
         .or(studio.executable.clone())
         .ok_or_else(|| AppError::msg("This studio has no CLI or executable to launch"))?;
-    let project = path.replace('/', "\\");
+    let project = path.to_string();
     let mut args: Vec<String> = vec![project.clone()];
     if let Some(file) = file {
         let file_path = if Path::new(&file).is_absolute() {
-            file.replace('/', "\\")
+            file
         } else {
-            target.join(file.replace('/', "\\")).to_string_lossy().into_owned()
+            file.split(['/', '\\'])
+                .filter(|s| !s.is_empty())
+                .fold(target.clone(), |p, s| p.join(s))
+                .to_string_lossy()
+                .into_owned()
         };
         if studio.family == StudioFamily::Vscode {
             if let Some(line) = line.filter(|n| *n > 0) {
@@ -533,7 +556,7 @@ pub fn open_in_studio(studio: Studio, path: String, file: Option<String>, line: 
 }
 
 fn spawn_editor(program: &str, args: &[String]) -> AppResult<()> {
-    let script = program.to_ascii_lowercase().ends_with(".cmd") || program.to_ascii_lowercase().ends_with(".bat");
+    let script = crate::services::winproc::is_shell_script(std::path::Path::new(program));
     let mut cmd = if script {
         let mut c = std::process::Command::new("cmd.exe");
         c.arg("/D").arg("/C").arg(program).args(args);

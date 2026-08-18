@@ -1,9 +1,11 @@
 //! Live version catalog.
 //!
 //! Elixir builds come from Hex Bob (`builds.hex.pm`), which is the same index
-//! asdf, mise, and the official install script use. OTP Windows assets come
-//! from GitHub Releases on `erlang/otp`. Latest versions are always resolved
-//! from the network; a short on-disk cache is only used when the network fails.
+//! asdf, mise, and the official install script use. OTP archives are
+//! platform-specific: GitHub `otp_win64_*.zip` on Windows, erlef/otp_builds
+//! on macOS, Hex Bob Ubuntu tarballs on Linux. Latest versions are always
+//! resolved from the network; a short on-disk cache is only used when the
+//! network fails.
 
 use crate::domain::{
     compatible_otp_majors, recommended_otp_major, ElixirRelease, ElixirVersion, OtpRelease,
@@ -188,13 +190,6 @@ async fn fetch_otp_releases() -> AppResult<Vec<OtpRelease>> {
             continue;
         };
         let version = ver.to_string();
-        let zip_url = rel.assets.iter().find_map(|a| {
-            if a.name == format!("otp_win64_{version}.zip") {
-                Some(crate::services::net::github_asset_url(&a.url, &a.browser_download_url))
-            } else {
-                None
-            }
-        });
         let exe_url = rel.assets.iter().find_map(|a| {
             if a.name == format!("otp_win64_{version}.exe") {
                 Some(crate::services::net::github_asset_url(&a.url, &a.browser_download_url))
@@ -202,6 +197,7 @@ async fn fetch_otp_releases() -> AppResult<Vec<OtpRelease>> {
                 None
             }
         });
+        let zip_url = otp_archive_url(&rel, &version);
         if zip_url.is_none() && exe_url.is_none() {
             continue;
         }
@@ -246,9 +242,7 @@ fn synthesize_otp_from_elixir(elixir_map: &BTreeMap<String, BTreeSet<u32>>) -> V
         .map(|major| OtpRelease {
             version: format!("{major}.0"),
             major,
-            zip_url: Some(format!(
-                "https://github.com/erlang/otp/releases/download/OTP-{major}.0/otp_win64_{major}.0.zip"
-            )),
+            zip_url: Some(platform_otp_url(&format!("{major}.0"))),
             exe_url: None,
             is_latest: false,
             is_prerelease: false,
@@ -316,7 +310,7 @@ fn assemble_catalog(
         recommended_elixir,
         recommended_otp,
         fetched_at: chrono_like_now(),
-        source: "builds.hex.pm + github.com/erlang/otp".into(),
+        source: crate::services::host::catalog_source().into(),
     }
 }
 
@@ -333,9 +327,51 @@ pub fn elixir_zip_url(elixir: &str, otp_major: u32) -> String {
     )
 }
 
+fn otp_archive_url(rel: &GithubRelease, version: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        rel.assets.iter().find_map(|a| {
+            if a.name == format!("otp_win64_{version}.zip") {
+                Some(crate::services::net::github_asset_url(&a.url, &a.browser_download_url))
+            } else {
+                None
+            }
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = rel;
+        Some(platform_otp_url(version))
+    }
+}
+
+fn platform_otp_url(version: &str) -> String {
+    if cfg!(windows) {
+        format!("https://github.com/erlang/otp/releases/download/OTP-{version}/otp_win64_{version}.zip")
+    } else if cfg!(target_os = "macos") {
+        crate::services::host::darwin_otp_url(version)
+    } else {
+        crate::services::host::linux_otp_url(version)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_otp_url_matches_os() {
+        let url = platform_otp_url("27.1.2");
+        if cfg!(windows) {
+            assert!(url.contains("otp_win64_27.1.2.zip"));
+        } else if cfg!(target_os = "macos") {
+            assert!(url.contains("erlef/otp_builds"));
+            assert!(url.ends_with(".tar.gz"));
+        } else {
+            assert!(url.contains("builds.hex.pm/builds/otp/"));
+            assert!(url.ends_with("/OTP-27.1.2.tar.gz"));
+        }
+    }
 
     #[test]
     fn parses_bob_builds_index() {

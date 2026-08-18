@@ -1,100 +1,62 @@
 # Roadmap
 
-Elin today is a Windows companion: install a compatible pair, find an editor, open a Mix app, see the graph.
+Elin is a desktop companion for Windows, macOS, and Linux: a matching Elixir+OTP pair, user PATH, the editor you already use, and a Mix workspace with a live module graph.
 
-The job after that is larger.
+Mix already creates projects, fetches Hex, compiles, and tests. Elin does not replace it. The job is the layer Mix never productized: **rustup-style pairing** plus **a map of the project** a senior would draw after a week of reading.
 
-**Be for Elixir what Cargo is for Rust — except the job is harder, so the product has to be sharper.** Not a clone of `mix`. A layer above it that understands the project the way a senior does after a week of reading.
-
-Dates are not promises. Order is.
+Implementation order, acceptance criteria, and the agent contract live in [`PLAN.md`](PLAN.md). Dates are not promises. Order is.
 
 ---
 
-## Now — Studio that does not flinch
+## Now — workspace people will live in
 
-The workspace window is the product people will live in. It has to feel like an IDE panel, not a settings dump.
+The Studio window has to feel like an instrument, not a settings dump with extra screens.
 
-- Graph that stays put, fits the canvas, and still reads on a 400-module Phoenix app (collapse by boundary, search, “only dirty”, “only cycles”).
-- Default editor everywhere: graph, notes, findings, git paths.
-- Console as a real session: history, restart, kill, one tab per Mix task if you want it.
-- Git that shows a diff, not only a file list. Push when identity is set.
-- Hex in the project: lock vs `mix.exs`, outdated, retired, advisories — without a round trip to the browser.
-- Quality scan that streams into the console and pins findings on the graph.
+1. **Graph — fluid, then the index** — 1a: 60fps pan/zoom on a real umbrella (cheap paint, LOD, no layout restart on every save). 1b: filters (lib, dirty, cycles, unwired), search that reaches the canvas, fit selection.
+2. **Inspector as a briefing** — neighbours by edge kind, tests for this file, git pill, notes that stay secondary.
+3. **Console as sessions** — start / stop / restart Mix tasks, one tab per job, Phoenix server included.
+4. **Git you can read** — a real diff, then push when identity is set.
+5. **Hex desk** — `mix.exs` vs lock, outdated, “why is this package here?”, update one dep.
 
 This slice is how Elin stops being “the installer with extra screens”.
 
 ---
 
-## Next — Analyzer that earns the Cargo comparison
+## Next — the map earns a command
 
-`mix compile` tells you if it builds. Elin should tell you how the system is shaped.
+`mix compile` tells you if it builds. Elin should tell you how the system is shaped — and CI should be able to say the same sentence.
 
-Cargo’s trick is not “it compiles”. It is that `cargo test`, `cargo clippy`, `cargo tree`, and the crate graph feel like one product. That is the bar — for Elixir.
+6. **Scan on the graph** — cycles and `# elin:boundary` crossings as findings; Credo/format/Sobelow pins on nodes; stream into the console. Mix tools stay plugins. Elin does not reimplement Credo.
+7. **`elin scan` as the habit** — JSON, exit codes a bot can trust, a GitHub Action example. Human output stays the default.
 
-- Module graph is the index, not a toy: aliases, `use`, `import`, `defdelegate`, calls, behaviours, supervision tree where we can see it.
-- Boundaries (`# elin:boundary core|ui|data`) as first-class edges — violations as findings, not comments you forget.
-- Cycles, unused, unwired, fan-in hotspots, “this file changed and these tests should run”.
-- Git overlay: what the last commit actually touched in the graph.
-- `elin scan` / `elin scan --full` as the CLI contract CI can run. JSON output. Exit codes a human and a bot can both trust.
-- Mix tools as plugins of the scan (Credo, format, Sobelow, MixAudit, Dialyzer, coverage) — Elin orchestrates. It does not reimplement Credo.
-
-When this lands, `elin scan` on a Mix root should feel as obvious as `cargo clippy` on a crate.
+When this lands, `elin scan` on a Mix root should feel as obvious as `cargo clippy` on a crate — without claiming Mix is missing.
 
 ---
 
-## Libraries — a Hex desk, not a search box
+## Then — the clone is a working machine
 
-Hex Radar is a start. The desk is:
+8. **`elin.toml`** in the repo: pin, kits, scan defaults. Apply is explicit, never a silent rewrite of `mix.exs`. **Expert** as the recommended editor LSP; ElixirLS remains listed.
 
-- Everything in `mix.exs` + `mix.lock`, with the spec you wrote vs the version you actually got.
-- Outdated / retired / advisory in one list, with “update this one” that writes the tuple and runs `deps.get`.
-- Transitive tree you can fold. “Why is `jason` here?”
-- A local watchlist: packages you care about across projects (the ones you maintain, the ones that scare you).
-- Publish checklist later — Hex API keys never in the repo, always in the OS credential store.
+Windows, macOS, and Linux installers ship from the same tag. The first hour on a clean Windows box is a pride surface, not an afterthought.
 
 ---
 
-## Documentation as a signal, not a folder
+## Later
 
-Elixir already has `@moduledoc`, `@doc`, typespecs, ExDoc, Doctor. Elin should treat missing docs like missing tests: visible, ranked, not a lecture.
-
-- Coverage of public modules vs the graph (the undocumented core is worse than an undocumented helper).
-- Stale docs: the `@doc` still talks about a function you renamed.
-- “Open ExDoc for this module” from the graph.
-- A studio panel that is a map of the public API, not a second copy of the markdown.
-
----
-
-## AI, on a leash
-
-No chatbot wallpaper. No “ask GPT to rewrite the project”.
-
-Useful, local-first jobs:
-
-- Explain this module in one paragraph, grounded in the graph and the `# elin:note` you already wrote.
-- “What breaks if I move `Accounts` behind this boundary?”
-- Draft a Credo explanation or a commit message from the staged diff.
-- Map a Hex advisory onto the modules that call the package.
-
-The model does not get to edit `mix.exs` unless you press the same buttons a human presses. Elin stays the source of truth; the model is a reader with a mouth.
-
----
-
-## Later — the rest of the map
-
-- **macOS / Linux** installers, same catalog, same studio.
-- **Umbrella / mix.exs paths** that are not a single app.
-- **Phoenix generators** as first-class kits (auth, live, presence) with a preview of files before write.
-- **Remote OTP/Elixir mirrors** for people who cannot hit GitHub.
-- **Team defaults**: a checked-in `elin.toml` (pin, kits, boundaries, default editor family) so a clone is a working machine.
+- Docs as a signal (`@moduledoc` coverage vs the graph, open ExDoc from a node).
+- AI on a leash: explain a module from the graph and `# elin:note`; never edit `mix.exs` except through the same buttons a human presses.
+- Igniter / Phoenix kits with a file preview.
+- Boundary compile errors on our graph when the kit is installed.
+- Hex publish checklist — keys in the OS credential store.
 
 ---
 
 ## What we will not do
 
 - Replace Mix, IEx, or ExUnit.
-- Ship a full editor. Elin opens yours.
+- Ship a full editor or a language server.
 - Require an account, a cloud project, or a license server.
-- Pretend a Windows-only 0.1 is “cross-platform” in the README.
+- Headline “Cargo for Elixir” as if Mix did not exist.
+- Pretend a half-ported Unix build is cross-platform.
 
-If a feature does not make `mix` more honest or the first week on Elixir shorter, it waits.
+If a feature does not make Mix more honest or the first week on an inherited umbrella shorter, it waits.

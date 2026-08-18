@@ -53,11 +53,11 @@ pub fn focus() -> bool {
     }
     #[cfg(not(windows))]
     {
-        false
+        unix_wake()
     }
 }
 
-/// Background thread: when a second `elin.exe` signals, show the main window.
+/// Background thread: when a second `elin` signals, show the main window.
 pub fn spawn_wake_listener<F>(on_wake: F)
 where
     F: Fn() + Send + 'static,
@@ -78,7 +78,7 @@ where
     }
     #[cfg(not(windows))]
     {
-        let _ = on_wake;
+        unix_spawn_wake_listener(on_wake);
     }
 }
 
@@ -261,6 +261,46 @@ fn focus_hwnd() -> bool {
         ShowWindow(hwnd, SW_RESTORE);
         BringWindowToTop(hwnd);
         SetForegroundWindow(hwnd) != 0
+    }
+}
+
+#[cfg(not(windows))]
+fn wake_sock() -> std::path::PathBuf {
+    crate::services::store::path("wake.sock")
+}
+
+#[cfg(not(windows))]
+fn unix_spawn_wake_listener<F>(on_wake: F)
+where
+    F: Fn() + Send + 'static,
+{
+    use std::os::unix::net::UnixListener;
+    let path = wake_sock();
+    let _ = std::fs::remove_file(&path);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(listener) = UnixListener::bind(&path) else {
+        return;
+    };
+    let _ = std::thread::Builder::new().name("elin-wake".into()).spawn(move || {
+        for stream in listener.incoming() {
+            drop(stream);
+            on_wake();
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn unix_wake() -> bool {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    match UnixStream::connect(wake_sock()) {
+        Ok(mut stream) => {
+            let _ = stream.write_all(b"focus");
+            true
+        }
+        Err(_) => false,
     }
 }
 

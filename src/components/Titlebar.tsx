@@ -32,7 +32,7 @@ export const Titlebar = memo(function Titlebar({
         className="drag-region flex h-full min-w-0 flex-1 items-center gap-3 px-3"
         onDoubleClick={() => void getCurrentWindow().toggleMaximize()}
       >
-        <img src="/elin.svg" alt="" className="pointer-events-none size-6 rounded-md" />
+        <img src="/elin.png" alt="" className="pointer-events-none size-6 rounded-md" />
         <div className="pointer-events-none min-w-0 leading-none">
           <div className="truncate text-[13px] font-semibold text-mist-50">{heading ?? t.app}</div>
         </div>
@@ -41,17 +41,7 @@ export const Titlebar = memo(function Titlebar({
         </span>
       </div>
       <div className="no-drag flex items-center">
-        <WindowButton
-          title="Minimize"
-          onClick={() => {
-            const win = getCurrentWindow();
-            if (win.label === "main") {
-              void win.close();
-            } else {
-              void win.minimize();
-            }
-          }}
-        >
+        <WindowButton title="Minimize" onClick={() => void getCurrentWindow().minimize()}>
           <Minus size={14} />
         </WindowButton>
         <WindowButton title="Maximize" onClick={() => void getCurrentWindow().toggleMaximize()}>

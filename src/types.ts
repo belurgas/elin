@@ -183,6 +183,7 @@ export interface UpdateProgress {
   message: string;
   downloaded: number;
   total: number;
+  stage?: string;
 }
 
 export interface SparkResult {

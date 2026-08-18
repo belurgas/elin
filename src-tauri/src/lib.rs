@@ -95,6 +95,7 @@ pub fn run() {
             commands::add_bin_to_path,
             commands::check_app_update,
             commands::download_app_update,
+            commands::start_app_update,
             commands::install_app_update,
             commands::show_toast,
             commands::hide_toast_window,

@@ -83,6 +83,7 @@ fn find_elixir() -> Option<BinaryHit> {
     if let Some(p) = which_any(&["elixir", "elixir.bat", "elixir.cmd", "elixir.exe"]) {
         candidates.push((p, "PATH"));
     }
+    #[cfg(windows)]
     for extra in [
         PathBuf::from(r"C:\Program Files\Elixir\bin\elixir.bat"),
         PathBuf::from(r"C:\Program Files (x86)\Elixir\bin\elixir.bat"),
@@ -92,18 +93,31 @@ fn find_elixir() -> Option<BinaryHit> {
         }
     }
     if let Some(home) = dirs::home_dir() {
-        let root = home.join(r".elixir-install\installs\elixir");
+        let root = home.join(".elixir-install").join("installs").join("elixir");
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
-                let bat = entry.path().join(r"bin\elixir.bat");
-                if bat.exists() {
-                    candidates.push((bat, "elixir-install"));
+                let bin = entry.path().join("bin");
+                if let Some(script) = crate::services::host::find_script(&bin, "elixir") {
+                    candidates.push((script, "elixir-install"));
                 }
             }
         }
-        let scoop = home.join(r"scoop\apps\elixir\current\bin\elixir.bat");
-        if scoop.exists() {
-            candidates.push((scoop, "Scoop"));
+        #[cfg(windows)]
+        {
+            let scoop = home.join("scoop").join("apps").join("elixir").join("current").join("bin").join("elixir.bat");
+            if scoop.exists() {
+                candidates.push((scoop, "Scoop"));
+            }
+        }
+        for extra in [
+            home.join(".asdf").join("shims").join("elixir"),
+            home.join(".local").join("share").join("mise").join("shims").join("elixir"),
+            PathBuf::from("/opt/homebrew/bin/elixir"),
+            PathBuf::from("/usr/local/bin/elixir"),
+        ] {
+            if extra.exists() {
+                candidates.push((extra, "system"));
+            }
         }
     }
 
@@ -116,34 +130,50 @@ fn find_erlang() -> Option<BinaryHit> {
     if let Some(p) = which_any(&["erl", "erl.exe"]) {
         candidates.push((p, "PATH"));
     }
-    for extra in [
-        PathBuf::from(r"C:\Program Files\Erlang OTP\bin\erl.exe"),
-        PathBuf::from(r"C:\Program Files\erl-27.0\bin\erl.exe"),
-        PathBuf::from(r"C:\Program Files\erl-26.2\bin\erl.exe"),
-    ] {
-        if extra.exists() {
-            candidates.push((extra, "Program Files"));
+    #[cfg(windows)]
+    {
+        for extra in [
+            PathBuf::from(r"C:\Program Files\Erlang OTP\bin\erl.exe"),
+            PathBuf::from(r"C:\Program Files\erl-27.0\bin\erl.exe"),
+            PathBuf::from(r"C:\Program Files\erl-26.2\bin\erl.exe"),
+        ] {
+            if extra.exists() {
+                candidates.push((extra, "Program Files"));
+            }
         }
-    }
-    if let Ok(entries) = std::fs::read_dir(r"C:\Program Files") {
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_lowercase();
-            if name.contains("erlang") || name.starts_with("erl") {
-                let erl = entry.path().join(r"bin\erl.exe");
-                if erl.exists() {
-                    candidates.push((erl, "Program Files"));
+        if let Ok(entries) = std::fs::read_dir(r"C:\Program Files") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                if name.contains("erlang") || name.starts_with("erl") {
+                    let erl = entry.path().join("bin").join("erl.exe");
+                    if erl.exists() {
+                        candidates.push((erl, "Program Files"));
+                    }
                 }
             }
         }
     }
     if let Some(home) = dirs::home_dir() {
-        let root = home.join(r".elixir-install\installs\otp");
+        let root = home.join(".elixir-install").join("installs").join("otp");
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
-                let erl = entry.path().join(r"bin\erl.exe");
-                if erl.exists() {
+                let bin = entry.path().join("bin");
+                if let Some(erl) = crate::services::host::find_script(&bin, "erl") {
                     candidates.push((erl, "elixir-install"));
+                } else if bin.join("erl.exe").exists() {
+                    candidates.push((bin.join("erl.exe"), "elixir-install"));
+                } else if bin.join("erl").exists() {
+                    candidates.push((bin.join("erl"), "elixir-install"));
                 }
+            }
+        }
+        for extra in [
+            home.join(".asdf").join("shims").join("erl"),
+            PathBuf::from("/opt/homebrew/bin/erl"),
+            PathBuf::from("/usr/local/bin/erl"),
+        ] {
+            if extra.exists() {
+                candidates.push((extra, "system"));
             }
         }
     }
@@ -156,7 +186,12 @@ fn find_mix(elixir: Option<&BinaryHit>) -> Option<BinaryHit> {
         return Some(describe("mix", p, "PATH", None));
     }
     if let Some(elixir) = elixir {
-        let mix = PathBuf::from(&elixir.path).with_file_name("mix.bat");
+        let dir = PathBuf::from(&elixir.path);
+        let parent = dir.parent().unwrap_or(&dir);
+        if let Some(mix) = crate::services::host::find_script(parent, "mix") {
+            return Some(describe("mix", mix, &elixir.source, None));
+        }
+        let mix = dir.with_file_name(crate::services::host::mix_script());
         if mix.exists() {
             return Some(describe("mix", mix, &elixir.source, None));
         }
@@ -169,6 +204,7 @@ fn find_git() -> Option<BinaryHit> {
     if let Some(p) = which_any(&["git", "git.exe"]) {
         candidates.push((p, "PATH"));
     }
+    #[cfg(windows)]
     for extra in [
         PathBuf::from(r"C:\Program Files\Git\cmd\git.exe"),
         PathBuf::from(r"C:\Program Files (x86)\Git\cmd\git.exe"),
@@ -176,6 +212,16 @@ fn find_git() -> Option<BinaryHit> {
     ] {
         if extra.exists() {
             candidates.push((extra, "Program Files"));
+        }
+    }
+    #[cfg(not(windows))]
+    for extra in [
+        PathBuf::from("/opt/homebrew/bin/git"),
+        PathBuf::from("/usr/local/bin/git"),
+        PathBuf::from("/usr/bin/git"),
+    ] {
+        if extra.exists() {
+            candidates.push((extra, "system"));
         }
     }
     let (path, source) = candidates.into_iter().next()?;
@@ -295,13 +341,26 @@ fn where_name(name: &str) -> &str {
     }
 }
 
-/// `where.exe` against the PATH a new `cmd.exe` would get — not Elin's inherited PATH.
+/// Resolve `command` against the PATH a new console would get — not Elin's inherited PATH.
 fn command_on_console_path(command: &str, console_path: &str) -> bool {
-    let mut cmd = Command::new("where.exe");
-    cmd.arg(command).env("PATH", console_path);
-    run_capped(&mut cmd, Duration::from_millis(800))
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false)
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("where.exe");
+        cmd.arg(command).env("PATH", console_path);
+        return run_capped(&mut cmd, Duration::from_millis(800))
+            .map(|o| o.status.success() && !o.stdout.is_empty())
+            .unwrap_or(false);
+    }
+    #[cfg(not(windows))]
+    {
+        for dir in crate::services::host::split_path(console_path) {
+            let candidate = Path::new(dir).join(command);
+            if candidate.is_file() {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// `which`, then PATHEXT-style names the crate sometimes misses.
@@ -406,6 +465,7 @@ mod tests {
     use super::*;
     use crate::services::env::path_contains_dir;
 
+    #[cfg(windows)]
     #[test]
     fn path_membership_is_parent_based() {
         let path = r"C:\Program Files\Elixir\bin;C:\Windows";
@@ -414,10 +474,20 @@ mod tests {
         assert!(!path_contains_dir(r"C:\Windows", bin.parent().unwrap()));
     }
 
+    #[cfg(windows)]
     #[test]
     fn trailing_slash_still_matches() {
         let path = r"C:\Program Files\Git\cmd\;C:\Windows";
         let dir = PathBuf::from(r"C:\Program Files\Git\cmd");
         assert!(path_contains_dir(path, &dir));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn path_membership_is_parent_based() {
+        let path = "/opt/elixir/bin:/usr/bin";
+        let bin = PathBuf::from("/opt/elixir/bin/elixir");
+        assert!(path_contains_dir(path, bin.parent().unwrap()));
+        assert!(!path_contains_dir("/usr/bin", bin.parent().unwrap()));
     }
 }

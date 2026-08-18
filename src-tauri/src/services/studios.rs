@@ -68,16 +68,18 @@ fn recipes() -> Vec<Recipe> {
             name: "Visual Studio Code",
             family: StudioFamily::Vscode,
             notes: "Best-in-class ElixirLS experience. One-click plugin install is supported.",
-            exe_names: &["Code.exe", "code.exe"],
+            exe_names: &["Code.exe", "code.exe", "code"],
             extra_paths: || {
-                vec![
+                let mut p = vec![
                     local_app_data().join(r"Programs\Microsoft VS Code\Code.exe"),
                     local_app_data().join(r"Programs\Microsoft VS Code Insiders\Code - Insiders.exe"),
                     program_files().join(r"Microsoft VS Code\Code.exe"),
                     program_files_x86().join(r"Microsoft VS Code\Code.exe"),
                     local_app_data().join(r"Microsoft\WindowsApps\Code.exe"),
                     dirs::home_dir().unwrap_or_default().join(r"scoop\apps\vscode\current\Code.exe"),
-                ]
+                ];
+                p.extend(unix_bins("Visual Studio Code", "code", "Electron"));
+                p
             },
             cli_names: &["code.cmd", "code", "code.exe"],
         },
@@ -86,13 +88,15 @@ fn recipes() -> Vec<Recipe> {
             name: "Cursor",
             family: StudioFamily::Vscode,
             notes: "VS Code-compatible. ElixirLS installs through the Cursor CLI (`cursor --install-extension`).",
-            exe_names: &["Cursor.exe", "cursor.exe"],
+            exe_names: &["Cursor.exe", "cursor.exe", "cursor"],
             extra_paths: || {
-                vec![
+                let mut p = vec![
                     local_app_data().join(r"Programs\cursor\Cursor.exe"),
                     local_app_data().join(r"Programs\Cursor\Cursor.exe"),
                     program_files().join(r"Cursor\Cursor.exe"),
-                ]
+                ];
+                p.extend(unix_bins("Cursor", "cursor", "Cursor"));
+                p
             },
             cli_names: &["cursor.cmd", "cursor", "cursor.exe"],
         },
@@ -101,12 +105,14 @@ fn recipes() -> Vec<Recipe> {
             name: "VSCodium",
             family: StudioFamily::Vscode,
             notes: "Open-source VS Code build. Uses the codium CLI for extensions.",
-            exe_names: &["VSCodium.exe"],
+            exe_names: &["VSCodium.exe", "codium"],
             extra_paths: || {
-                vec![
+                let mut p = vec![
                     local_app_data().join(r"Programs\VSCodium\VSCodium.exe"),
                     program_files().join(r"VSCodium\VSCodium.exe"),
-                ]
+                ];
+                p.extend(unix_bins("VSCodium", "codium", "Electron"));
+                p
             },
             cli_names: &["codium.cmd", "codium"],
         },
@@ -115,8 +121,12 @@ fn recipes() -> Vec<Recipe> {
             name: "Windsurf",
             family: StudioFamily::Vscode,
             notes: "Codeium editor. VS Code extensions, including ElixirLS, are supported.",
-            exe_names: &["Windsurf.exe"],
-            extra_paths: || vec![local_app_data().join(r"Programs\Windsurf\Windsurf.exe")],
+            exe_names: &["Windsurf.exe", "windsurf"],
+            extra_paths: || {
+                let mut p = vec![local_app_data().join(r"Programs\Windsurf\Windsurf.exe")];
+                p.extend(unix_bins("Windsurf", "windsurf", "Windsurf"));
+                p
+            },
             cli_names: &["windsurf.cmd", "windsurf"],
         },
         Recipe {
@@ -133,7 +143,7 @@ fn recipes() -> Vec<Recipe> {
             name: "IntelliJ IDEA",
             family: StudioFamily::Jetbrains,
             notes: "Install the Elixir plugin from JetBrains Marketplace. Elin will open the page.",
-            exe_names: &["idea64.exe", "idea.exe"],
+            exe_names: &["idea64.exe", "idea.exe", "idea"],
             extra_paths: || jetbrains_paths("IntelliJ"),
             cli_names: &["idea64.exe"],
         },
@@ -142,7 +152,7 @@ fn recipes() -> Vec<Recipe> {
             name: "WebStorm",
             family: StudioFamily::Jetbrains,
             notes: "The Elixir plugin is available on JetBrains Marketplace.",
-            exe_names: &["webstorm64.exe"],
+            exe_names: &["webstorm64.exe", "webstorm"],
             extra_paths: || jetbrains_paths("WebStorm"),
             cli_names: &[],
         },
@@ -151,12 +161,14 @@ fn recipes() -> Vec<Recipe> {
             name: "Neovim",
             family: StudioFamily::Neovim,
             notes: "Use elixir-tools.nvim or Mason's elixir-ls. Elin copies a starter snippet.",
-            exe_names: &["nvim.exe"],
+            exe_names: &["nvim.exe", "nvim"],
             extra_paths: || {
-                vec![
+                let mut p = vec![
                     program_files().join(r"Neovim\bin\nvim.exe"),
                     local_app_data().join(r"Programs\Neovim\bin\nvim.exe"),
-                ]
+                ];
+                p.extend(unix_bins("nvim", "nvim", "nvim"));
+                p
             },
             cli_names: &["nvim"],
         },
@@ -165,8 +177,12 @@ fn recipes() -> Vec<Recipe> {
             name: "Zed",
             family: StudioFamily::Zed,
             notes: "Zed has a first-party Elixir extension. Elin can open the extensions UI.",
-            exe_names: &["Zed.exe"],
-            extra_paths: || vec![local_app_data().join(r"Programs\Zed\Zed.exe")],
+            exe_names: &["Zed.exe", "zed"],
+            extra_paths: || {
+                let mut p = vec![local_app_data().join(r"Programs\Zed\Zed.exe")];
+                p.extend(unix_bins("Zed", "zed", "zed"));
+                p
+            },
             cli_names: &["zed"],
         },
         Recipe {
@@ -174,12 +190,14 @@ fn recipes() -> Vec<Recipe> {
             name: "Sublime Text",
             family: StudioFamily::Sublime,
             notes: "Install the Elixir package via Package Control.",
-            exe_names: &["sublime_text.exe"],
+            exe_names: &["sublime_text.exe", "subl", "sublime_text"],
             extra_paths: || {
-                vec![
+                let mut p = vec![
                     program_files().join(r"Sublime Text\sublime_text.exe"),
                     program_files().join(r"Sublime Text 3\sublime_text.exe"),
-                ]
+                ];
+                p.extend(unix_bins("Sublime Text", "subl", "sublime_text"));
+                p
             },
             cli_names: &["subl"],
         },
@@ -188,8 +206,12 @@ fn recipes() -> Vec<Recipe> {
             name: "Emacs",
             family: StudioFamily::Emacs,
             notes: "elixir-mode + eglot/lsp-mode talking to ElixirLS.",
-            exe_names: &["emacs.exe", "runemacs.exe"],
-            extra_paths: || vec![program_files().join(r"Emacs\bin\runemacs.exe")],
+            exe_names: &["emacs.exe", "runemacs.exe", "emacs"],
+            extra_paths: || {
+                let mut p = vec![program_files().join(r"Emacs\bin\runemacs.exe")];
+                p.extend(unix_bins("Emacs", "emacs", "Emacs"));
+                p
+            },
             cli_names: &["emacs"],
         },
         Recipe {
@@ -197,11 +219,27 @@ fn recipes() -> Vec<Recipe> {
             name: "Helix",
             family: StudioFamily::Other,
             notes: "Helix uses ElixirLS through languages.toml. Plugin-capable via LSP.",
-            exe_names: &["hx.exe"],
+            exe_names: &["hx.exe", "hx"],
             extra_paths: || vec![],
             cli_names: &["hx"],
         },
     ]
+}
+
+fn unix_bins(app: &str, cli: &str, macos_bin: &str) -> Vec<PathBuf> {
+    let mut out = vec![
+        PathBuf::from(format!("/Applications/{app}.app/Contents/MacOS/{macos_bin}")),
+        PathBuf::from(format!("/Applications/{app}.app/Contents/Resources/app/bin/{cli}")),
+        PathBuf::from(format!("/usr/local/bin/{cli}")),
+        PathBuf::from(format!("/opt/homebrew/bin/{cli}")),
+        PathBuf::from(format!("/usr/bin/{cli}")),
+        PathBuf::from(format!("/snap/bin/{cli}")),
+        dirs::home_dir().unwrap_or_default().join(".local").join("bin").join(cli),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        out.push(home.join("Applications").join(format!("{app}.app")).join("Contents").join("MacOS").join(macos_bin));
+    }
+    out
 }
 
 fn jetbrains_paths(product: &str) -> Vec<PathBuf> {
@@ -528,6 +566,14 @@ fn extract_icons_batch(paths: &[PathBuf]) -> HashMap<String, String> {
         return out;
     }
 
+    #[cfg(not(windows))]
+    {
+        let _ = missing;
+        return out;
+    }
+
+    #[cfg(windows)]
+    {
     let list = missing
         .iter()
         .map(|p| format!("'{}'", p.to_string_lossy().replace('\'', "''")))
@@ -570,4 +616,5 @@ foreach ($p in $paths) {{
         }
     }
     out
+    }
 }

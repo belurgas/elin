@@ -1,12 +1,19 @@
-//! User PATH surgery on Windows, plus the shared toolchain root.
+//! User PATH surgery, plus the shared toolchain root.
 //!
-//! Elin writes to the current-user Environment key (no admin required) and
-//! broadcasts `WM_SETTINGCHANGE` so new terminals pick up the change.
+//! Windows: current-user Environment key (no admin) and `WM_SETTINGCHANGE`.
+//! Unix: `~/.elixir-install/env.sh` (same layout as elixir-install) sourced
+//! from the usual shell profiles. Never asks for root.
 
 use crate::error::{AppError, AppResult};
-use std::path::PathBuf;
+use crate::services::host::{join_path, path_key, path_sep, split_path};
+use std::path::{Path, PathBuf};
 
-/// Official elixir-install layout, so Elin and `install.bat` can share installs.
+#[cfg(not(windows))]
+const ENV_BEGIN: &str = "# >>> elin PATH >>>";
+#[cfg(not(windows))]
+const ENV_END: &str = "# <<< elin PATH <<<";
+
+/// Official elixir-install layout, so Elin and `install.sh` / `install.bat` can share installs.
 pub fn managed_root() -> AppResult<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| AppError::msg("Could not resolve the user home directory"))?;
     Ok(home.join(".elixir-install").join("installs"))
@@ -14,11 +21,10 @@ pub fn managed_root() -> AppResult<PathBuf> {
 
 /// Marker used to recognize PATH entries Elin previously wrote for toolchains.
 pub fn is_managed_path(entry: &str) -> bool {
-    let lower = entry.replace('/', "\\").to_lowercase();
-    lower.contains("\\.elixir-install\\installs\\")
+    path_key(entry).contains("/.elixir-install/installs/")
 }
 
-/// Folder that contains `elin.exe` (install dir, or target/debug while developing).
+/// Folder that contains `elin` (install dir, or target/debug while developing).
 pub fn elin_install_dir() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
@@ -54,19 +60,18 @@ pub fn add_elin_to_path() -> AppResult<String> {
     ))
 }
 
-/// Prepend OTP + Elixir bin folders and drop stale Elin entries.
+/// Prepend OTP + Elixir bin folders and drop stale Elin-managed toolchain entries.
 pub fn set_user_path_entries(bins: &[PathBuf]) -> AppResult<()> {
     #[cfg(windows)]
     {
-        windows_set_path(bins)
+        windows_set_path(bins)?;
     }
     #[cfg(not(windows))]
     {
-        let _ = bins;
-        Err(AppError::msg(
-            "PATH editing is implemented for Windows in this build.",
-        ))
+        unix_set_path(bins)?;
     }
+    apply_process_path(bins, true);
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -100,7 +105,7 @@ fn windows_set_path(bins: &[PathBuf]) -> AppResult<()> {
 }
 
 fn paths_equal(a: &str, b: &str) -> bool {
-    a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"))
+    path_key(a) == path_key(b)
 }
 
 #[cfg(windows)]
@@ -135,7 +140,7 @@ fn broadcast_setting_change() {
     }
 }
 
-/// Read the current user PATH (Windows) or process PATH (elsewhere).
+/// Read the current user PATH (Windows registry / Unix env.sh) or process PATH.
 pub fn user_path() -> String {
     #[cfg(windows)]
     {
@@ -151,6 +156,9 @@ pub fn user_path() -> String {
     }
     #[cfg(not(windows))]
     {
+        if let Some(managed) = read_unix_env_path() {
+            return managed;
+        }
         std::env::var("PATH").unwrap_or_default()
     }
 }
@@ -178,7 +186,7 @@ pub fn machine_path() -> String {
     }
 }
 
-/// PATH a brand-new `cmd.exe` actually gets: expanded machine + user.
+/// PATH a brand-new console actually gets.
 pub fn console_path() -> String {
     let machine = expand_env_vars(&machine_path());
     let user = expand_env_vars(&user_path());
@@ -187,11 +195,11 @@ pub fn console_path() -> String {
     } else if user.is_empty() {
         machine
     } else {
-        format!("{machine};{user}")
+        format!("{}{}{}", machine, path_sep(), user)
     }
 }
 
-/// Expand `%VAR%` sequences the way a new console does.
+/// Expand `%VAR%` (Windows) and `$VAR` / `${VAR}` (Unix) the way a new console does.
 pub fn expand_env_vars(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let bytes = raw.as_bytes();
@@ -209,44 +217,67 @@ pub fn expand_env_vars(raw: &str) -> String {
                 }
             }
         }
+        if bytes[i] == b'$' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'{' {
+                if let Some(end) = raw[i + 2..].find('}') {
+                    let name = &raw[i + 2..i + 2 + end];
+                    if let Ok(val) = std::env::var(name) {
+                        out.push_str(&val);
+                        i += name.len() + 3;
+                        continue;
+                    }
+                }
+            } else if bytes[i + 1].is_ascii_alphabetic() || bytes[i + 1] == b'_' {
+                let mut j = i + 1;
+                while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                    j += 1;
+                }
+                let name = &raw[i + 1..j];
+                if let Ok(val) = std::env::var(name) {
+                    out.push_str(&val);
+                    i = j;
+                    continue;
+                }
+            }
+        }
         out.push(bytes[i] as char);
         i += 1;
     }
     out
 }
 
-pub fn path_contains_dir(path_var: &str, dir: &std::path::Path) -> bool {
+pub fn path_contains_dir(path_var: &str, dir: &Path) -> bool {
     let needle = normalize_dir(dir);
     if needle.is_empty() {
         return false;
     }
-    expand_env_vars(path_var).split(';').any(|entry| {
+    split_path(&expand_env_vars(path_var)).iter().any(|entry| {
         let trimmed = entry.trim().trim_matches('"');
-        !trimmed.is_empty() && normalize_dir(std::path::Path::new(trimmed)) == needle
+        !trimmed.is_empty() && normalize_dir(Path::new(trimmed)) == needle
     })
 }
 
-fn normalize_dir(path: &std::path::Path) -> String {
-    path.to_string_lossy()
-        .trim_end_matches(['\\', '/'])
-        .replace('/', "\\")
-        .to_lowercase()
+fn normalize_dir(path: &Path) -> String {
+    path_key(&path.to_string_lossy())
 }
 
 /// Prepend folders to the user PATH without dropping existing Elin entries.
 /// Skips folders already present on user or machine PATH.
 pub fn prepend_user_path_dirs(dirs: &[PathBuf]) -> AppResult<Vec<PathBuf>> {
-    #[cfg(windows)]
-    {
-        windows_prepend_path(dirs)
+    let added = {
+        #[cfg(windows)]
+        {
+            windows_prepend_path(dirs)?
+        }
+        #[cfg(not(windows))]
+        {
+            unix_prepend_path(dirs)?
+        }
+    };
+    if !added.is_empty() {
+        apply_process_path(&added, false);
     }
-    #[cfg(not(windows))]
-    {
-        let _ = dirs;
-        Err(AppError::msg(
-            "PATH editing is implemented for Windows in this build.",
-        ))
-    }
+    Ok(added)
 }
 
 #[cfg(windows)]
@@ -290,11 +321,218 @@ fn windows_prepend_path(dirs: &[PathBuf]) -> AppResult<Vec<PathBuf>> {
     Ok(added)
 }
 
+fn apply_process_path(bins: &[PathBuf], drop_managed: bool) {
+    let rest = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = Vec::new();
+    for bin in bins {
+        let value = bin.to_string_lossy().to_string();
+        parts.retain(|p| !paths_equal(p, &value));
+        parts.push(value);
+    }
+    for entry in split_path(&rest) {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if drop_managed && is_managed_path(trimmed) {
+            continue;
+        }
+        if parts.iter().any(|p| paths_equal(p, trimmed)) {
+            continue;
+        }
+        parts.push(trimmed.to_string());
+    }
+    std::env::set_var("PATH", join_path(&parts));
+}
+
+#[cfg(not(windows))]
+fn unix_env_sh() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".elixir-install").join("env.sh"))
+}
+
+#[cfg(not(windows))]
+fn unix_env_fish() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".elixir-install").join("env.fish"))
+}
+
+#[cfg(not(windows))]
+fn read_unix_env_path() -> Option<String> {
+    let path = unix_env_sh()?;
+    let text = std::fs::read_to_string(path).ok()?;
+    parse_unix_env_path(&text)
+}
+
+#[cfg(not(windows))]
+fn parse_unix_env_path(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        let rest = line.strip_prefix("export PATH=")?;
+        let rest = rest.trim().trim_matches('"').trim_matches('\'');
+        let prefix = rest
+            .trim_end_matches(":$PATH")
+            .trim_end_matches("$PATH")
+            .trim_end_matches(':');
+        if !prefix.is_empty() {
+            return Some(prefix.to_string());
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn unix_set_path(bins: &[PathBuf]) -> AppResult<()> {
+    let current = read_unix_env_path().unwrap_or_default();
+    let mut parts: Vec<String> = split_path(&current)
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && !is_managed_path(s))
+        .collect();
+    for bin in bins.iter().rev() {
+        let value = bin.to_string_lossy().to_string();
+        parts.retain(|p| !paths_equal(p, &value));
+        parts.insert(0, value);
+    }
+    write_unix_env_files(&parts)?;
+    ensure_unix_profiles()?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn unix_prepend_path(dirs: &[PathBuf]) -> AppResult<Vec<PathBuf>> {
+    let current = user_path();
+    let mut parts: Vec<String> = split_path(&current)
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut added = Vec::new();
+    for dir in dirs.iter().rev() {
+        if !dir.exists() {
+            continue;
+        }
+        if path_contains_dir(&current, dir) {
+            continue;
+        }
+        let value = dir.to_string_lossy().to_string();
+        parts.retain(|p| !paths_equal(p, &value));
+        parts.insert(0, value);
+        added.push(dir.clone());
+    }
+    if added.is_empty() {
+        return Ok(added);
+    }
+    write_unix_env_files(&parts)?;
+    ensure_unix_profiles()?;
+    Ok(added)
+}
+
+#[cfg(not(windows))]
+fn write_unix_env_files(parts: &[String]) -> AppResult<()> {
+    let sh = unix_env_sh().ok_or_else(|| AppError::msg("Could not resolve home directory"))?;
+    if let Some(parent) = sh.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let joined = parts.join(":");
+    let sh_body = format!(
+        "# Generated by Elin. Safe to delete; Elin will rewrite it.\n\
+         # https://github.com/belurgas/elin\n\
+         export PATH=\"{joined}:$PATH\"\n"
+    );
+    std::fs::write(&sh, sh_body)?;
+    if let Some(fish) = unix_env_fish() {
+        let fish_parts = parts.join(" ");
+        let fish_body = format!(
+            "# Generated by Elin.\n\
+             fish_add_path -P {fish_parts}\n"
+        );
+        let _ = std::fs::write(fish, fish_body);
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn ensure_unix_profiles() -> AppResult<()> {
+    let home = dirs::home_dir().ok_or_else(|| AppError::msg("Could not resolve home directory"))?;
+    let snippet = format!(
+        "{ENV_BEGIN}\n[ -f \"$HOME/.elixir-install/env.sh\" ] && . \"$HOME/.elixir-install/env.sh\"\n{ENV_END}\n"
+    );
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    let candidates = [
+        (".profile", true),
+        (".zprofile", shell.contains("zsh") || home.join(".zprofile").exists() || home.join(".zshrc").exists()),
+        (".zshrc", home.join(".zshrc").exists()),
+        (".bash_profile", shell.contains("bash") || home.join(".bash_profile").exists()),
+        (".bashrc", home.join(".bashrc").exists()),
+    ];
+    for (name, write) in candidates {
+        if !write {
+            continue;
+        }
+        upsert_block(&home.join(name), &snippet)?;
+    }
+    let fish_dir = home.join(".config").join("fish").join("conf.d");
+    if fish_dir.exists() || shell.contains("fish") {
+        let _ = std::fs::create_dir_all(&fish_dir);
+        let fish_snippet = format!(
+            "{ENV_BEGIN}\nif test -f $HOME/.elixir-install/env.fish\n    source $HOME/.elixir-install/env.fish\nend\n{ENV_END}\n"
+        );
+        let _ = std::fs::write(fish_dir.join("elin.fish"), fish_snippet);
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn upsert_block(path: &Path, block: &str) -> AppResult<()> {
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let next = if existing.contains(ENV_BEGIN) {
+        replace_block(&existing, block)
+    } else if existing.is_empty() {
+        block.to_string()
+    } else {
+        let mut out = existing;
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push('\n');
+        out.push_str(block);
+        out
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, next)?;
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_block(existing: &str, block: &str) -> String {
+    let Some(start) = existing.find(ENV_BEGIN) else {
+        return format!("{existing}\n{block}");
+    };
+    let after = &existing[start..];
+    let end = after
+        .find(ENV_END)
+        .map(|i| start + i + ENV_END.len())
+        .unwrap_or(existing.len());
+    let mut out = String::new();
+    out.push_str(&existing[..start]);
+    out.push_str(block);
+    let rest = existing[end..].trim_start_matches('\n');
+    if !rest.is_empty() {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(rest);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::Path;
 
+    #[cfg(windows)]
     #[test]
     fn expands_percent_vars() {
         let expanded = expand_env_vars(r"%SystemRoot%\system32");
@@ -303,16 +541,56 @@ mod tests {
     }
 
     #[test]
+    fn expands_dollar_home() {
+        std::env::set_var("ELIN_EXPAND_TEST", "ok-value");
+        assert_eq!(expand_env_vars("$ELIN_EXPAND_TEST/bin"), "ok-value/bin");
+        assert_eq!(expand_env_vars("${ELIN_EXPAND_TEST}/bin"), "ok-value/bin");
+        std::env::remove_var("ELIN_EXPAND_TEST");
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn path_contains_ignores_slash_and_case() {
         let var = r"C:\Program Files\Git\cmd;C:\Windows";
         assert!(path_contains_dir(var, Path::new(r"C:\Program Files\Git\cmd\")));
         assert!(!path_contains_dir(var, Path::new(r"C:\Program Files\Git\bin")));
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn path_contains_unix_colon() {
+        let var = "/usr/bin:/opt/homebrew/bin";
+        assert!(path_contains_dir(var, Path::new("/opt/homebrew/bin")));
+        assert!(!path_contains_dir(var, Path::new("/opt/homebrew")));
+    }
+
     #[test]
     fn elixir_install_marker_does_not_match_elin_app_dir() {
         assert!(is_managed_path(r"C:\Users\me\.elixir-install\installs\otp\27.0\bin"));
+        assert!(is_managed_path("/Users/me/.elixir-install/installs/otp/27.0/bin"));
         assert!(!is_managed_path(r"C:\Users\me\AppData\Local\Elin"));
         assert!(!is_managed_path(r"D:\elin\src-tauri\target\debug"));
+        assert!(!is_managed_path("/Applications/Elin.app/Contents/MacOS"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn parses_env_sh_export() {
+        let text = "export PATH=\"/opt/otp/bin:/opt/elixir/bin:$PATH\"\n";
+        assert_eq!(
+            parse_unix_env_path(text).as_deref(),
+            Some("/opt/otp/bin:/opt/elixir/bin")
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn replace_block_rewrites_managed_section() {
+        let existing = "export FOO=1\n# >>> elin PATH >>>\nold\n# <<< elin PATH <<<\nexport BAR=2\n";
+        let next = replace_block(existing, "# >>> elin PATH >>>\nnew\n# <<< elin PATH <<<\n");
+        assert!(next.contains("new"));
+        assert!(!next.contains("old"));
+        assert!(next.contains("export FOO=1"));
+        assert!(next.contains("export BAR=2"));
     }
 }

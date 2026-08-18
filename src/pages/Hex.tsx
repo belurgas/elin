@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, browse } from "../lib/api";
 import { useApp } from "../state";
-import { Button, Card, PageShell, Pill } from "../components/ui";
+import { Button, Card, PageShell, Pill, Input } from "../components/ui";
 import type { HexPackage } from "../types";
 import { cn } from "../lib/cn";
 
@@ -64,11 +64,11 @@ export function HexPage() {
           void search();
         }}
       >
-        <input
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t.hex.placeholder}
-          className="field flex-1"
+          className="flex-1"
         />
         <Button type="submit">{t.hex.search}</Button>
       </form>

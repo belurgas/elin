@@ -1,5 +1,9 @@
-//! Run `.bat` toolchains on Windows without quote-hell, and decode OEM console text.
+//! Run Mix / Elixir without quote-hell, and decode console text.
+//!
+//! On Windows the toolchain is `.bat` files that must go through `cmd /C`.
+//! On Unix they are ordinary scripts with a shebang.
 
+use crate::services::host::{join_path, path_key, split_path};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -25,6 +29,25 @@ pub fn hide_console_ex(cmd: &mut Command, extra: u32) {
         let _ = extra;
         let _ = cmd;
     }
+}
+
+pub fn is_shell_script(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("bat") || e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("ps1"))
+        .unwrap_or(false)
+}
+
+fn tool_command(script: &Path) -> Command {
+    #[cfg(windows)]
+    {
+        if is_shell_script(script) {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.arg("/D").arg("/C").arg(script);
+            return cmd;
+        }
+    }
+    Command::new(script)
 }
 
 /// Decode process output. Windows mix/elixir often print OEM (CP866), not UTF-8.
@@ -84,18 +107,20 @@ fn decode_codepage(cp: u32, bytes: &[u8]) -> Option<String> {
     }
 }
 
+fn looks_like_elixir_install(entry: &str) -> bool {
+    let l = path_key(entry);
+    l.contains("/elixir")
+        || l.contains("/erlang")
+        || l.contains("/erl-")
+        || l.contains("/.elixir-install")
+}
+
 /// PATH with this pair first, and other Elixir/OTP installs stripped so they cannot shadow it.
 pub fn isolated_path(otp_bin: &Path, elixir_bin: &Path) -> String {
     let rest = std::env::var("PATH").unwrap_or_default();
-    let filtered: Vec<&str> = rest
-        .split(';')
-        .filter(|p| {
-            let l = p.to_lowercase().replace('/', "\\");
-            !l.contains("\\elixir")
-                && !l.contains("\\erlang")
-                && !l.contains("\\erl-")
-                && !l.contains("\\.elixir-install")
-        })
+    let filtered: Vec<&str> = split_path(&rest)
+        .into_iter()
+        .filter(|p| !looks_like_elixir_install(p))
         .collect();
     let mut parts = Vec::new();
     parts.push(otp_bin.to_string_lossy().into_owned());
@@ -107,7 +132,7 @@ pub fn isolated_path(otp_bin: &Path, elixir_bin: &Path) -> String {
     }
     parts.push(elixir_bin.to_string_lossy().into_owned());
     parts.extend(filtered.into_iter().map(str::to_string));
-    parts.join(";")
+    join_path(&parts)
 }
 
 pub fn erlang_home(otp_bin: &Path) -> Option<PathBuf> {
@@ -120,39 +145,8 @@ pub fn erlang_home(otp_bin: &Path) -> Option<PathBuf> {
     }
 }
 
-/// `cmd /C <bat> <args>` as separate argv so paths with spaces are not double-quoted.
-/// `.bat` cannot be CreateProcess'd directly on Windows.
-pub fn run_bat(bat: &Path, args: &[&str], path: &str, erlang_home: Option<&Path>) -> std::io::Result<Output> {
-    let mut cmd = Command::new("cmd.exe");
-    cmd.arg("/D")
-        .arg("/C")
-        .arg(bat)
-        .args(args)
-        .env("PATH", path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if let Some(home) = erlang_home {
-        cmd.env("ERLANG_HOME", home);
-    }
-    hide_console(&mut cmd);
-    cmd.output()
-}
-
-/// Spawn a `.bat` with stdout/stderr piped. Same quoting rules as [`run_bat`].
-pub fn spawn_bat(
-    bat: &Path,
-    args: &[&str],
-    path: &str,
-    erlang_home: Option<&Path>,
-    cwd: Option<&Path>,
-) -> std::io::Result<std::process::Child> {
-    let mut cmd = Command::new("cmd.exe");
-    cmd.arg("/D")
-        .arg("/C")
-        .arg(bat)
-        .args(args)
-        .env("PATH", path)
+fn apply_toolchain_env(cmd: &mut Command, path: &str, erlang_home: Option<&Path>) {
+    cmd.env("PATH", path)
         .env("TERM", "dumb")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -160,10 +154,31 @@ pub fn spawn_bat(
     if let Some(home) = erlang_home {
         cmd.env("ERLANG_HOME", home);
     }
+    hide_console(cmd);
+}
+
+/// Run a toolchain script (`mix.bat` / `mix`, `elixir.bat` / `elixir`).
+pub fn run_bat(bat: &Path, args: &[&str], path: &str, erlang_home: Option<&Path>) -> std::io::Result<Output> {
+    let mut cmd = tool_command(bat);
+    cmd.args(args);
+    apply_toolchain_env(&mut cmd, path, erlang_home);
+    cmd.output()
+}
+
+/// Spawn a toolchain script with stdout/stderr piped. Same quoting rules as [`run_bat`].
+pub fn spawn_bat(
+    bat: &Path,
+    args: &[&str],
+    path: &str,
+    erlang_home: Option<&Path>,
+    cwd: Option<&Path>,
+) -> std::io::Result<std::process::Child> {
+    let mut cmd = tool_command(bat);
+    cmd.args(args);
+    apply_toolchain_env(&mut cmd, path, erlang_home);
     if let Some(cwd) = cwd {
         cmd.current_dir(cwd);
     }
-    hide_console(&mut cmd);
     cmd.spawn()
 }
 
@@ -177,4 +192,17 @@ pub fn output_text(output: &Output) -> String {
         text.push_str(&err);
     }
     text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_extensions_are_scripts() {
+        assert!(is_shell_script(Path::new("mix.bat")));
+        assert!(is_shell_script(Path::new("code.cmd")));
+        assert!(!is_shell_script(Path::new("mix")));
+        assert!(!is_shell_script(Path::new("erl.exe")));
+    }
 }

@@ -31,6 +31,7 @@ pub static HTTP: Lazy<Client> = Lazy::new(|| {
 const API_TIMEOUT: Duration = Duration::from_secs(45);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const STALL: Duration = Duration::from_secs(45);
+const TTFB: Duration = Duration::from_secs(45);
 
 /// GET for catalogs and JSON APIs — must not hang forever.
 pub fn get_api(url: impl AsRef<str>) -> reqwest::RequestBuilder {
@@ -81,23 +82,35 @@ pub async fn download_to_file(
     headers: &[(&str, &str)],
     mut on_progress: impl FnMut(u64, u64),
 ) -> AppResult<u64> {
+    if !url.starts_with("https://") {
+        return Err(AppError::msg("Downloads must use HTTPS."));
+    }
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = dest.with_extension("partial");
-    let mut req = HTTP.get(url).timeout(DOWNLOAD_TIMEOUT);
+    // HTTP/2 to GitHub / objects.githubusercontent.com often sits on headers forever
+    // and freezes the WebView if the command is still in-flight. HTTP/1.1 + a TTFB
+    // cap means we fail fast instead of hanging the window.
+    let mut req = HTTP
+        .get(url)
+        .timeout(DOWNLOAD_TIMEOUT)
+        .version(reqwest::Version::HTTP_11);
     for (k, v) in headers {
         req = req.header(*k, *v);
     }
     on_progress(0, expected_size.unwrap_or(0));
-    let response = req.send().await?.error_for_status()?;
+    let response = tokio::time::timeout(TTFB, req.send())
+        .await
+        .map_err(|_| AppError::msg("Download did not start. Check the network and try again."))??
+        .error_for_status()?;
     let total = response.content_length().or(expected_size).unwrap_or(0);
     on_progress(0, total);
 
     let mut stream = response.bytes_stream();
     let mut file = tokio::fs::File::create(&tmp).await?;
     let mut downloaded: u64 = 0;
-    let mut last_ui = Instant::now() - Duration::from_millis(200);
+    let mut last_ui = Instant::now() - Duration::from_millis(250);
 
     loop {
         let next = tokio::time::timeout(STALL, stream.next())
@@ -107,7 +120,7 @@ pub async fn download_to_file(
         let chunk = chunk?;
         downloaded += chunk.len() as u64;
         file.write_all(&chunk).await?;
-        if last_ui.elapsed() >= Duration::from_millis(120) {
+        if last_ui.elapsed() >= Duration::from_millis(200) {
             on_progress(downloaded, total);
             last_ui = Instant::now();
         }

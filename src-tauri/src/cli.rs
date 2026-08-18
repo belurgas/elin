@@ -121,7 +121,7 @@ pub fn help_text() -> &'static str {
      elin kit add <id>    Add a kit to mix.exs\n\
      elin kit remove <id> Remove a kit from mix.exs\n\
      elin status [path]   Pin, git branch, dirty files\n\
-     elin path            Put this elin.exe on the user PATH\n"
+     elin path            Put this elin binary on the user PATH\n"
 }
 
 fn print_help() {
@@ -138,7 +138,7 @@ fn print_help() {
         ("kit add <id>", "add a kit to mix.exs"),
         ("kit remove <id>", "remove a kit from mix.exs"),
         ("status [path]", "pin, git branch, dirty files"),
-        ("path", "put this elin.exe on the user PATH"),
+        ("path", "put this elin binary on the user PATH"),
     ];
     println!("  {}", term::dim("USAGE"));
     for (cmd, hint) in rows {

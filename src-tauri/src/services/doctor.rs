@@ -44,7 +44,7 @@ pub fn run_doctor() -> AppResult<DoctorReport> {
         probe.elixir.is_some(),
         match &probe.elixir {
             Some(h) => format!("{} · {}", h.path, h.source),
-            None => "No Elixir binary on PATH, Program Files, Scoop, or ~/.elixir-install.".into(),
+            None => "No Elixir binary on PATH, Homebrew, or ~/.elixir-install.".into(),
         },
         "Use Install to fetch a compatible Elixir + OTP pair.",
         "error",
@@ -138,9 +138,13 @@ pub fn run_doctor() -> AppResult<DoctorReport> {
             None => "Mix dependencies are Git/Hex checkouts. Git is required.".into(),
         },
         if probe.git.as_ref().map(|h| h.needs_path_fix).unwrap_or(false) {
-            "Fix adds Git's cmd folder to the user PATH."
-        } else {
+            "Fix adds Git's folder to the user PATH."
+        } else if cfg!(windows) {
             "Install Git for Windows from https://git-scm.com/download/win"
+        } else if cfg!(target_os = "macos") {
+            "Install Git with Xcode CLT (`xcode-select --install`) or Homebrew."
+        } else {
+            "Install Git with your package manager (`sudo apt install git`)."
         },
         "warn",
         probe.git.as_ref().map(|h| h.path.clone()),
@@ -153,22 +157,25 @@ pub fn run_doctor() -> AppResult<DoctorReport> {
         },
     ));
 
-    let vcruntime = PathBuf::from(r"C:\Windows\System32\vcruntime140.dll").exists();
-    checks.push(check(
-        "vcredist",
-        "system",
-        "Visual C++ Redistributable",
-        vcruntime,
-        if vcruntime {
-            "vcruntime140.dll is present.".into()
-        } else {
-            "The Erlang VM on Windows needs the VC++ runtime.".into()
-        },
-        "Install the latest x64 VC++ Redistributable from Microsoft.",
-        "warn",
-        None,
-        None,
-    ));
+    #[cfg(windows)]
+    {
+        let vcruntime = PathBuf::from(r"C:\Windows\System32\vcruntime140.dll").exists();
+        checks.push(check(
+            "vcredist",
+            "system",
+            "Visual C++ Redistributable",
+            vcruntime,
+            if vcruntime {
+                "vcruntime140.dll is present.".into()
+            } else {
+                "The Erlang VM on Windows needs the VC++ runtime.".into()
+            },
+            "Install the latest x64 VC++ Redistributable from Microsoft.",
+            "warn",
+            None,
+            None,
+        ));
+    }
 
     let managed = list_installed().unwrap_or_default();
     checks.push(check(
@@ -188,7 +195,7 @@ pub fn run_doctor() -> AppResult<DoctorReport> {
     ));
 
     let path = user_path();
-    let has_managed = path.split(';').any(is_managed_path);
+    let has_managed = crate::services::host::split_path(&path).iter().any(|e| is_managed_path(e));
     checks.push(check(
         "path-wired",
         "path",
@@ -338,14 +345,19 @@ pub fn apply_fix(fix_id: &str) -> AppResult<String> {
                 .unwrap_or_else(|| elixir_bin.to_path_buf());
             let path = crate::services::winproc::isolated_path(&otp_bin, elixir_bin);
             let home = crate::services::winproc::erlang_home(&otp_bin);
+            let mix_script = if mix_path.exists() {
+                mix_path.clone()
+            } else {
+                crate::services::host::mix_cmd(elixir_bin)
+            };
             let hex = crate::services::winproc::run_bat(
-                &mix_path,
+                &mix_script,
                 &["local.hex", "--force"],
                 &path,
                 home.as_deref(),
             )?;
             let rebar = crate::services::winproc::run_bat(
-                &mix_path,
+                &mix_script,
                 &["local.rebar", "--force"],
                 &path,
                 home.as_deref(),
@@ -363,14 +375,29 @@ pub fn apply_fix(fix_id: &str) -> AppResult<String> {
         }
         "add-path-elin" => add_elin_to_path(),
         "open-git" => {
+            let url = if cfg!(windows) {
+                "https://git-scm.com/download/win"
+            } else if cfg!(target_os = "macos") {
+                "https://git-scm.com/download/mac"
+            } else {
+                "https://git-scm.com/download/linux"
+            };
             #[cfg(windows)]
             {
                 let mut cmd = Command::new("cmd");
-                cmd.args(["/C", "start", "", "https://git-scm.com/download/win"]);
+                cmd.args(["/C", "start", "", url]);
                 crate::services::winproc::hide_console(&mut cmd);
                 let _ = cmd.spawn();
             }
-            Ok("Opened the Git for Windows download page.".into())
+            #[cfg(target_os = "macos")]
+            {
+                let _ = Command::new("open").arg(url).spawn();
+            }
+            #[cfg(all(unix, not(target_os = "macos")))]
+            {
+                let _ = Command::new("xdg-open").arg(url).spawn();
+            }
+            Ok("Opened the Git download page.".into())
         }
         other => Err(crate::error::AppError::msg(format!("Unknown fix: {other}"))),
     }

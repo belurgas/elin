@@ -25,6 +25,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 tokio = { version = "1", features = ["fs", "process", "io-util", "rt-multi-thread", "macros", "time"] }
 futures-util = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+tar = { version = "0.4", default-features = false }
 dirs = "6"
 which = "7"
 regex = "1"

@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<WixLocalization Culture="ru-RU" xmlns="http://schemas.microsoft.com/wix/2006/localization">
-  <String Id="LaunchApp">Запустить Elin</String>
-  <String Id="DowngradeErrorMessage">Уже установлена более новая версия Elin.</String>
-  <String Id="PathEnvVarFeature">Добавить папку Elin в PATH, чтобы запускать приложение из терминала.</String>
-  <String Id="InstallAppFeature">Установить Elin — компаньон Elixir и Erlang/OTP.</String>
-</WixLocalization>

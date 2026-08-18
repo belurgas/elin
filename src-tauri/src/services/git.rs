@@ -73,7 +73,9 @@ pub fn snapshot(project_path: &str) -> GitSnapshot {
             dep_changes: vec![],
         };
     };
-    let repo = repo.trim().replace('/', "\\");
+    let repo = repo.trim().to_string();
+    #[cfg(windows)]
+    let repo = repo.replace('/', "\\");
     let repo_path = PathBuf::from(&repo);
     let branch = git_out(&git, &repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
         .ok()

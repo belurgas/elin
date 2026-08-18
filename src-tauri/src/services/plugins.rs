@@ -258,8 +258,7 @@ pub fn install_plugin(studio: &Studio, marketplace_id: &str) -> AppResult<String
         .cli
         .as_ref()
         .ok_or_else(|| AppError::msg(format!("{} was detected but its CLI was not found", studio.name)))?;
-    let lower = cli.to_ascii_lowercase();
-    let script = lower.ends_with(".cmd") || lower.ends_with(".bat");
+    let script = crate::services::winproc::is_shell_script(std::path::Path::new(cli));
     let mut cmd = if script {
         let mut c = Command::new("cmd.exe");
         c.arg("/D")
