@@ -24,7 +24,7 @@ body:
     id: version
     attributes:
       label: Elin version
-      placeholder: 0.9.7 / commit hash / tauri dev
+      placeholder: 0.9.8 / commit hash / tauri dev
   - type: textarea
     id: env
     attributes:
