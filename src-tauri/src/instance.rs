@@ -7,6 +7,7 @@
 //! flyout. Those shells used to share the title "Elin", so FindWindow showed
 //! the popup instead.
 
+#[cfg(windows)]
 use std::ffi::c_void;
 
 const MUTEX_NAME: &str = "Local\\ElinGuiSingleton";

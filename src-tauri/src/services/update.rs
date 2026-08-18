@@ -460,20 +460,38 @@ mod tests {
             draft: false,
             prerelease: false,
             published_at: None,
-            assets: vec![GithubAsset {
-                name: "Elin_1.2.3_x64-setup.exe".into(),
-                url: "https://api.github.com/repos/belurgas/elin/releases/assets/1".into(),
-                browser_download_url: "https://example.com/setup.exe".into(),
-                size: 10,
-            }],
+            assets: vec![
+                GithubAsset {
+                    name: "Elin_1.2.3_x64-setup.exe".into(),
+                    url: "https://api.github.com/repos/belurgas/elin/releases/assets/1".into(),
+                    browser_download_url: "https://example.com/setup.exe".into(),
+                    size: 10,
+                },
+                GithubAsset {
+                    name: "Elin_1.2.3_aarch64.dmg".into(),
+                    url: "https://api.github.com/repos/belurgas/elin/releases/assets/2".into(),
+                    browser_download_url: "https://example.com/elin.dmg".into(),
+                    size: 11,
+                },
+                GithubAsset {
+                    name: "elin_1.2.3_amd64.AppImage".into(),
+                    url: "https://api.github.com/repos/belurgas/elin/releases/assets/3".into(),
+                    browser_download_url: "https://example.com/elin.AppImage".into(),
+                    size: 12,
+                },
+            ],
         };
         let info = from_release(rel);
         assert_eq!(info.latest, "1.2.3");
-        assert_eq!(info.asset_name.as_deref(), Some("Elin_1.2.3_x64-setup.exe"));
-        assert_eq!(
-            info.asset_url.as_deref(),
-            Some("https://api.github.com/repos/belurgas/elin/releases/assets/1")
-        );
+        let name = info.asset_name.expect("platform installer");
+        let n = name.to_ascii_lowercase();
+        if cfg!(windows) {
+            assert!(n.ends_with(".exe"), "{name}");
+        } else if cfg!(target_os = "macos") {
+            assert!(n.ends_with(".dmg"), "{name}");
+        } else {
+            assert!(n.ends_with(".appimage"), "{name}");
+        }
     }
 
     #[cfg(windows)]

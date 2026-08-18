@@ -2,13 +2,16 @@
 //! icons, and let the user pick extra executables.
 
 use crate::error::{AppError, AppResult};
-use base64::engine::general_purpose::STANDARD as BASE64;
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::process::Command;
+#[cfg(windows)]
+use base64::engine::general_purpose::STANDARD as BASE64;
+#[cfg(windows)]
+use base64::Engine;
 
 /// How an editor can receive Elixir tooling.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
