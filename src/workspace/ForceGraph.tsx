@@ -160,9 +160,11 @@ export function ForceGraph({
   }, [graph]);
 
   useEffect(() => {
-    const wrap = wrapRef.current;
-    const svg = svgRef.current;
-    if (!wrap || !svg) return;
+    const wrapEl = wrapRef.current;
+    const svgEl = svgRef.current;
+    if (!wrapEl || !svgEl) return;
+    const wrap: HTMLDivElement = wrapEl;
+    const svg: SVGSVGElement = svgEl;
     let frame = 0;
     let running = true;
     let dirty = true;
