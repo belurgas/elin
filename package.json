@@ -1,7 +1,7 @@
 {
   "name": "elin",
   "private": true,
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "Elixir + OTP installer, studio, and CLI for Windows, macOS, and Linux",
   "type": "module",
   "scripts": {
